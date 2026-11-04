@@ -1,0 +1,1064 @@
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>애드스캔</title>
+<style>
+/*@@FONTS@@*/
+
+/* 레이아웃: undersign-assist와 같은 토스 구조. 가운데 480px 세로 한 줄, 한 화면에 할 일 하나,
+   아래에 붙는 큰 버튼, 구역은 카드 테두리 대신 굵은 회색 띠와 여백으로 나눈다. */
+:root {
+  --bg: #ffffff;
+  --grey50: #f9fafb;
+  --grey100: #f2f4f6;
+  --grey200: #e5e8eb;
+  --grey300: #d1d6db;
+  --text: #191f28;
+  --text-strong: #333d4b;
+  --muted: #6b7684;
+  --primary: #9bd0f7;
+  --on-primary: #0b3b66;
+  --accent: #1479c8;
+  --soft: #e6f2fd;
+  --soft-ink: #0b5e9e;
+  --marker: #4ba8f0;
+  --ok: #1b7f3b;
+  --ok-soft: #e9f7ee;
+  --warn: #9a5b00;
+  --warn-soft: #fff8e6;
+  --bad: #c0362c;
+  --bad-soft: #fff3f2;
+  --logo: #000000;
+  --font: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  --gutter-l: max(20px, env(safe-area-inset-left, 0px));
+  --gutter-r: max(20px, env(safe-area-inset-right, 0px));
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101318; --grey50: #161a20; --grey100: #1e232a; --grey200: #2a3038; --grey300: #3b434d;
+    --text: #f2f4f6; --text-strong: #d1d6db; --muted: #9aa4b1;
+    --primary: #9bd0f7; --on-primary: #0b3b66; --accent: #6cb8f4; --soft: #13304a; --soft-ink: #9bd0f7; --marker: #4ba8f0;
+    --ok: #6fd08f; --ok-soft: #15301e; --warn: #f2b84b; --warn-soft: #33280f; --bad: #ff8a80; --bad-soft: #3a1d1b;
+    --logo: #f2f4f6;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #101318; --grey50: #161a20; --grey100: #1e232a; --grey200: #2a3038; --grey300: #3b434d;
+  --text: #f2f4f6; --text-strong: #d1d6db; --muted: #9aa4b1;
+  --primary: #9bd0f7; --on-primary: #0b3b66; --accent: #6cb8f4; --soft: #13304a; --soft-ink: #9bd0f7; --marker: #4ba8f0;
+  --ok: #6fd08f; --ok-soft: #15301e; --warn: #f2b84b; --warn-soft: #33280f; --bad: #ff8a80; --bad-soft: #3a1d1b;
+  --logo: #f2f4f6;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+body::before {
+  content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px);
+  background: var(--bg); z-index: 10;
+}
+.app { max-width: 480px; margin: 0 auto; }
+
+/* 위쪽 막대: 뒤로 + 진행 동그라미 */
+.bar {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+  height: 64px; display: grid; grid-template-columns: 52px 1fr 52px; align-items: center;
+  padding-left: var(--gutter-l); padding-right: var(--gutter-r);
+  background: var(--bg);
+}
+.icon-btn {
+  width: 44px; height: 44px; border: 0; border-radius: 14px; background: transparent;
+  color: var(--text); display: grid; place-items: center; cursor: pointer; margin-left: -10px;
+}
+.icon-btn:hover { background: var(--grey100); }
+.icon-btn svg { width: 24px; height: 24px; }
+.dots { display: flex; justify-content: center; gap: 10px; }
+.dot {
+  width: 14px; height: 14px; border-radius: 50%; border: 2.5px solid var(--grey300); background: var(--bg);
+  transition: background .25s ease-out, border-color .25s ease-out, box-shadow .25s ease-out;
+}
+.dot.filled { background: var(--marker); border-color: var(--marker); }
+.dot.current { border-color: var(--marker); box-shadow: 0 0 0 4px var(--soft); }
+
+/* 화면 */
+.screen { display: flex; flex-direction: column; min-height: calc(100dvh - 64px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
+.content { flex: 1; padding-bottom: 8px; }
+.sec { padding: 8px var(--gutter-r) 24px var(--gutter-l); }
+.band { height: 12px; background: var(--grey100); margin: 4px 0 20px; }
+h1 {
+  font-size: 26px; font-weight: 800; line-height: 1.35; letter-spacing: -0.02em;
+  margin: 8px 0 10px; text-wrap: balance;
+}
+h1:focus { outline: none; }
+h2 { font-size: 18px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.01em; }
+.lead { font-size: 16px; color: var(--muted); margin: 0; max-width: 34ch; }
+.hint { font-size: 14px; color: var(--muted); margin: 0 0 12px; }
+
+/* 버튼 */
+.cta {
+  position: sticky; bottom: 0; z-index: 4;
+  display: grid; gap: 8px;
+  padding: 16px var(--gutter-r) calc(16px + env(safe-area-inset-bottom, 0px)) var(--gutter-l);
+  background: linear-gradient(to bottom, transparent, var(--bg) 20px);
+}
+.btn {
+  height: 56px; border: 0; border-radius: 14px; font: inherit; font-size: 17px; font-weight: 700;
+  cursor: pointer; transition: filter .15s, transform .1s;
+}
+.btn:active:not(:disabled) { transform: scale(.98); }
+.btn.primary { background: var(--primary); color: var(--on-primary); }
+.btn.primary:hover:not(:disabled) { filter: brightness(.96); }
+.btn.weak { background: var(--grey100); color: var(--text-strong); }
+.btn.weak:hover:not(:disabled) { filter: brightness(.97); }
+.btn:disabled { background: var(--grey200); color: var(--muted); cursor: default; }
+.text-btn {
+  border: 0; background: none; padding: 6px 4px; font: inherit; font-size: 14px; font-weight: 700;
+  color: var(--accent); cursor: pointer;
+}
+:focus-visible { outline: 3px solid var(--marker); outline-offset: 2px; }
+
+/* 처음 화면 */
+.mark {
+  width: 64px; height: 64px; border-radius: 18px; background: var(--logo); margin: 12px 0 20px;
+  display: grid; place-items: center;
+}
+.mark svg { width: 34px; height: 34px; }
+.how { list-style: none; padding: 0; margin: 28px 0 0; display: grid; gap: 20px; }
+.how li { display: grid; grid-template-columns: 32px 1fr; gap: 14px; align-items: start; }
+.num {
+  width: 32px; height: 32px; border-radius: 50%; background: var(--soft); color: var(--soft-ink);
+  display: grid; place-items: center; font-weight: 800; font-size: 15px; font-variant-numeric: tabular-nums;
+}
+.how b { display: block; font-size: 16px; font-weight: 700; }
+.how span.d { display: block; font-size: 14px; color: var(--muted); }
+
+/* 영상 고르기 */
+.drop {
+  margin-top: 24px; display: grid; place-items: center; gap: 10px; text-align: center;
+  min-height: 176px; padding: 24px; border-radius: 16px; border: 1.5px solid var(--grey200);
+  background: var(--grey50); cursor: pointer; transition: border-color .2s, background .2s;
+}
+.drop:hover, .drop.over { border-color: var(--marker); background: var(--soft); }
+.drop .ic { width: 52px; height: 52px; border-radius: 50%; background: var(--soft); color: var(--soft-ink); display: grid; place-items: center; }
+.drop .ic svg { width: 26px; height: 26px; }
+.drop b { font-size: 17px; }
+.drop small { color: var(--muted); font-size: 13px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.picked { margin-top: 24px; }
+.picked video {
+  width: 100%; max-width: 100%; max-height: 360px; border-radius: 16px; background: #000; display: block;
+}
+.picked-meta { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.picked-meta div { flex: 1; min-width: 0; }
+.picked-meta b { display: block; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picked-meta span { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+textarea {
+  width: 100%; font: inherit; font-size: 16px; line-height: 1.6; color: var(--text);
+  background: var(--bg); border: 1.5px solid var(--grey200); border-radius: 14px; padding: 14px 16px;
+  resize: vertical; min-height: 96px;
+}
+textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+textarea::placeholder { color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.chip {
+  border: 0; border-radius: 10px; background: var(--grey100); color: var(--text-strong);
+  font: inherit; font-size: 14px; font-weight: 700; padding: 8px 12px; cursor: pointer;
+}
+.chip:hover { background: var(--grey200); }
+
+/* 확인 중 */
+.steps { list-style: none; padding: 0; margin: 28px 0 0; display: grid; gap: 18px; }
+.steps li { display: grid; grid-template-columns: 28px 1fr; gap: 14px; align-items: start; }
+.st-ic { width: 28px; height: 28px; border-radius: 50%; border: 2.5px solid var(--grey300); display: grid; place-items: center; }
+.st-ic svg { width: 16px; height: 16px; display: none; }
+.steps li[data-state="doing"] .st-ic { border-color: var(--soft); border-top-color: var(--marker); animation: spin .8s linear infinite; }
+.steps li[data-state="done"] .st-ic { background: var(--marker); border-color: var(--marker); color: #fff; }
+.steps li[data-state="done"] .st-ic svg { display: block; }
+.steps li[data-state="skip"] { opacity: .5; }
+.steps li[data-state="fail"] .st-ic { border-color: var(--bad); background: var(--bad-soft); }
+.steps b { display: block; font-size: 16px; font-weight: 700; }
+.steps li[data-state="wait"] b { color: var(--muted); }
+.steps .st-sub { display: block; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.thumbs { display: flex; gap: 8px; overflow-x: auto; margin-top: 28px; padding-bottom: 4px; }
+.thumbs img { width: 64px; height: 64px; object-fit: cover; border-radius: 10px; flex: none; background: var(--grey100); animation: pop .25s ease-out; }
+@keyframes pop { from { opacity: 0; transform: scale(.9); } }
+.err { margin-top: 24px; padding: 16px; border-radius: 14px; background: var(--bad-soft); color: var(--bad); font-weight: 700; }
+
+/* 결과 */
+.v-ic { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; margin: 12px 0 18px; }
+.v-ic svg { width: 32px; height: 32px; }
+.verdict[data-level="ban"] .v-ic { background: var(--bad-soft); color: var(--bad); }
+.verdict[data-level="warn"] .v-ic { background: var(--warn-soft); color: var(--warn); }
+.verdict[data-level="ok"] .v-ic { background: var(--ok-soft); color: var(--ok); }
+.counts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.count { border-radius: 10px; background: var(--grey100); padding: 6px 12px; font-size: 14px; font-weight: 700; color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.count.ban { background: var(--bad-soft); color: var(--bad); }
+.count.warn { background: var(--warn-soft); color: var(--warn); }
+
+.hits { list-style: none; padding: 0; margin: 12px 0 0; }
+.hit { display: flex; gap: 14px; padding: 16px 0; border-top: 1px solid var(--grey100); }
+.hit:first-child { border-top: 0; padding-top: 4px; }
+.hit-thumb { position: relative; margin: 0; flex: none; }
+.hit-thumb img { width: 64px; height: 64px; object-fit: cover; border-radius: 10px; display: block; background: var(--grey100); }
+.hit-thumb figcaption {
+  position: absolute; left: 4px; bottom: 4px; padding: 0 5px; border-radius: 6px;
+  background: rgba(0,0,0,.7); color: #fff; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.hit-body { flex: 1; min-width: 0; }
+.hit-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hit-head b { font-size: 16px; font-weight: 700; }
+.tag { border-radius: 6px; padding: 1px 7px; font-size: 12px; font-weight: 700; }
+.tag.ban { background: var(--bad-soft); color: var(--bad); }
+.tag.warn { background: var(--warn-soft); color: var(--warn); }
+.tag.ok { background: var(--ok-soft); color: var(--ok); }
+.tag.plain { background: var(--grey100); color: var(--muted); }
+.hit-sent { margin: 6px 0 0; color: var(--text-strong); }
+.hit-sent mark { background: var(--bad-soft); color: var(--bad); font-weight: 700; border-radius: 4px; padding: 0 2px; }
+.hit.lv-review .hit-sent mark { background: var(--warn-soft); color: var(--warn); }
+.hit-basis { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+.hit-ai { margin: 8px 0 0; font-size: 14px; color: var(--text-strong); background: var(--grey50); border-radius: 10px; padding: 8px 12px; }
+.empty { color: var(--muted); margin: 12px 0 0; }
+.ai-sum { margin: 8px 0 0; font-size: 16px; color: var(--text-strong); }
+details.raw summary { cursor: pointer; font-weight: 700; font-size: 16px; padding: 4px 0; color: var(--text-strong); }
+details.raw ol { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 8px; }
+details.raw li { display: grid; grid-template-columns: 44px 1fr; gap: 8px; font-size: 14px; color: var(--text-strong); }
+details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.disclaimer { margin: 20px 0 0; font-size: 13px; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .steps li[data-state="doing"] .st-ic { animation-duration: 2.4s; }
+  .thumbs img { animation: none; }
+}
+</style>
+
+<div class="app">
+  <header class="bar">
+    <button class="icon-btn" id="backBtn" type="button" aria-label="뒤로" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+    </button>
+    <span class="dots" id="dots" role="img" hidden><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>
+    <span></span>
+  </header>
+
+  <main>
+    <!-- 처음 -->
+    <section class="screen" id="s-home" data-step="-1">
+      <div class="content">
+        <div class="sec">
+          <div class="mark" aria-hidden="true">
+            <svg viewBox="0 0 34 34" fill="none">
+              <rect x="3" y="6" width="22" height="16" rx="4" stroke="var(--bg)" stroke-width="2.6"/>
+              <path d="M11.5 10.5v7l5.5-3.5z" fill="var(--bg)"/>
+              <circle cx="24" cy="23" r="6" fill="var(--logo)" stroke="var(--primary)" stroke-width="2.6"/>
+              <path d="M28.3 27.3l3 3" stroke="var(--primary)" stroke-width="2.8" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <h1 tabindex="-1">광고 영상 속<br>부당한 표현을 찾아 드려요</h1>
+          <p class="lead">식품 광고를 녹화한 영상을 올리면 화면 글자를 읽고, 법이 금지한 표현이 있는지 확인해요.</p>
+          <ol class="how">
+            <li><span class="num">1</span><div><b>광고 녹화 영상 올리기</b><span class="d">휴대폰 화면 녹화 파일이면 돼요</span></div></li>
+            <li><span class="num">2</span><div><b>금지어 사전과 대조</b><span class="d" id="dictCount">식품표시광고법 시행령·식약처 고시 기준</span></div></li>
+            <li><span class="num">3</span><div><b>애매한 표현은 AI가 문맥 확인</b><span class="d">질병명이나 전문가 언급이 오해를 부르는지 봐요</span></div></li>
+          </ol>
+        </div>
+      </div>
+      <div class="cta">
+        <button class="btn primary" type="button" data-go="upload">영상 올리기</button>
+        <button class="btn weak" type="button" data-go="text">글자로 직접 입력하기</button>
+      </div>
+    </section>
+
+    <!-- 영상 고르기 -->
+    <section class="screen" id="s-upload" data-step="0" hidden>
+      <div class="content">
+        <div class="sec">
+          <h1 tabindex="-1">확인할 광고 영상을<br>골라 주세요</h1>
+          <label class="drop" id="drop" for="fileInput">
+            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="14" height="14" rx="3"/><path d="M17 10l4-2.5v9L17 14"/></svg></span>
+            <b>영상 고르기</b>
+            <small>mp4 · mov · webm, 1분 이내를 권장해요</small>
+          </label>
+          <input type="file" id="fileInput" class="sr-only" accept="video/*">
+          <div class="picked" id="picked" hidden>
+            <video id="preview" controls playsinline muted></video>
+            <div class="picked-meta">
+              <div><b id="pickedName"></b><span id="pickedInfo"></span></div>
+              <button class="text-btn" type="button" id="changeFile">다른 영상</button>
+            </div>
+          </div>
+        </div>
+        <div class="band"></div>
+        <div class="sec">
+          <h2>들리는 말도 확인할까요?</h2>
+          <p class="hint">이 웹 버전은 영상 소리를 직접 듣지 못해요. 나레이션을 적어 주시면 함께 확인해요. (선택)</p>
+          <label class="sr-only" for="narration">나레이션</label>
+          <textarea id="narration" rows="3" placeholder="예: 의사가 추천하는 다이어트 차예요"></textarea>
+        </div>
+      </div>
+      <div class="cta">
+        <button class="btn primary" type="button" id="startVideo" disabled>이 영상 확인하기</button>
+      </div>
+    </section>
+
+    <!-- 글자로 입력 -->
+    <section class="screen" id="s-text" data-step="0" hidden>
+      <div class="content">
+        <div class="sec">
+          <h1 tabindex="-1">광고 문구를<br>입력해 주세요</h1>
+          <p class="lead">자막이나 상세페이지 문구를 붙여 넣으면 같은 기준으로 확인해요.</p>
+          <label class="sr-only" for="textInput">광고 문구</label>
+          <textarea id="textInput" rows="6" style="margin-top:24px" placeholder="한 줄에 한 문장씩 적어도 돼요"></textarea>
+          <div class="chips">
+            <button class="chip" type="button" data-ex="0">예시: 금지 표현</button>
+            <button class="chip" type="button" data-ex="1">예시: 문맥 확인</button>
+            <button class="chip" type="button" data-ex="2">예시: 문제 없음</button>
+          </div>
+        </div>
+      </div>
+      <div class="cta">
+        <button class="btn primary" type="button" id="startText" disabled>확인하기</button>
+      </div>
+    </section>
+
+    <!-- 확인 중 -->
+    <section class="screen" id="s-run" data-step="1" hidden>
+      <div class="content">
+        <div class="sec">
+          <h1 tabindex="-1" id="runTitle">영상을 확인하고 있어요</h1>
+          <p class="lead" id="runLead">영상 길이에 따라 1분쯤 걸릴 수 있어요.</p>
+          <ul class="steps" id="steps">
+            <li data-k="frames" data-state="wait"><span class="st-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg></span><div><b>장면 뽑기</b><span class="st-sub"></span></div></li>
+            <li data-k="ocr" data-state="wait"><span class="st-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg></span><div><b>화면 글자 읽기</b><span class="st-sub"></span></div></li>
+            <li data-k="dict" data-state="wait"><span class="st-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg></span><div><b>금지어 사전과 대조</b><span class="st-sub"></span></div></li>
+            <li data-k="ai" data-state="wait"><span class="st-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg></span><div><b>AI 문맥 확인</b><span class="st-sub">애매한 표현이 있을 때만 해요</span></div></li>
+          </ul>
+          <div class="thumbs" id="thumbs" aria-hidden="true"></div>
+          <div class="err" id="runErr" role="alert" hidden></div>
+        </div>
+      </div>
+      <div class="cta">
+        <button class="btn weak" type="button" id="stopBtn">그만하기</button>
+        <button class="btn primary" type="button" id="retryBtn" hidden>다시 시도하기</button>
+        <button class="btn weak" type="button" id="toTextBtn" hidden>글자로 직접 입력하기</button>
+      </div>
+    </section>
+
+    <!-- 결과 -->
+    <section class="screen" id="s-result" data-step="2" hidden>
+      <div class="content">
+        <div class="sec verdict" id="verdict" data-level="ok">
+          <div class="v-ic" id="vIcon" aria-hidden="true"></div>
+          <h1 tabindex="-1" id="vTitle"></h1>
+          <p class="lead" id="vLead"></p>
+          <div class="counts" id="vCounts"></div>
+        </div>
+        <div class="band"></div>
+        <div class="sec">
+          <h2>찾은 표현</h2>
+          <ul class="hits" id="hits"></ul>
+        </div>
+        <div id="aiBlock" hidden>
+          <div class="band"></div>
+          <div class="sec">
+            <h2>AI가 본 문맥</h2>
+            <p class="ai-sum" id="aiSummary"></p>
+          </div>
+        </div>
+        <div class="band"></div>
+        <div class="sec">
+          <details class="raw">
+            <summary id="rawSummary">읽은 글자 전체 보기</summary>
+            <ol id="rawList"></ol>
+          </details>
+          <p class="disclaimer">이 결과는 법률 판단이 아니라 금지어 사전과 AI로 걸러 본 참고 결과예요. 최종 판단은 직접 하세요. 부당광고 신고와 상담은 식품의약품안전처 1399에서 받아요.</p>
+        </div>
+      </div>
+      <div class="cta">
+        <button class="btn primary" type="button" id="againBtn">다른 광고 확인하기</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<video id="probe" muted playsinline preload="auto" aria-hidden="true" style="position:fixed;left:-20px;top:0;width:1px;height:1px;opacity:0;pointer-events:none"></video>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------------------------------------------------------------
+  // 팀 금지어 사전 (data/dictionary/geumjieo_list.csv 에서 빌드 때 채움)
+  // stage: ban = 1단계 금지어, combo_expert = 전문가+추천동사, combo_disease = 질병명+효능동사
+  // ---------------------------------------------------------------
+  const DICT = /*@@DICT@@*/;
+
+  // 웹 데모에서 더한 오탐 예외. '공신력'(신뢰)이 '공신'(공신단 계열 부분일치)으로 걸리지 않게 한다.
+  const EXCEPTIONS = { "공신": ["공신력"] };
+  // '암'은 한 글자라 앞 글자가 한글이면 다른 낱말로 보고 뺀다. 뒤에는 조사·합성어만 허용.
+  const AM_NEXT = new Set("이을은의도에과와만세환까".split(""));
+
+  const REVIEW_REASON = {
+    expert_only: "전문가가 언급됐어요. 추천·보증이 아니라 연구·개발 참여 사실만 밝힌 거라면 괜찮아요 (시행령 별표1 제5호라목).",
+    expert_use: "전문가와 '사용'이 함께 나왔어요. '사용'은 다른 뜻으로도 많이 써서 문맥을 봐야 해요 (시행령 별표1 제5호라목).",
+    disease_only: "질병 이름이 나왔어요. 질병을 예방·치료한다고 받아들일 수 있는지 봐야 해요 (시행령 별표1 제1호)."
+  };
+
+  const EXAMPLES = [
+    "의사가 추천하는 건강차예요.\n마시기만 해도 당뇨가 개선돼요.",
+    "당뇨 걱정되는 분들 주목!\n약사가 직접 개발한 여주 건강즙을 만나 보세요.",
+    "매일 아침 한 잔으로 상쾌한 하루를 시작하세요.\n국산 보리 100%로 만들었어요."
+  ];
+
+  // ---------------------------------------------------------------
+  // 판정 엔진
+  // ---------------------------------------------------------------
+  const isHangul = (c) => !!c && /[가-힣]/.test(c);
+  const isLatin = (c) => !!c && /[A-Za-z]/.test(c);
+  const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  DICT.forEach((e) => {
+    const chars = Array.from(e.word.replace(/\s+/g, ""));
+    e.re = new RegExp(chars.map(reEsc).join("\\s*"), "gi");
+    e.ascii = /^[A-Za-z0-9-]+$/.test(e.word);
+  });
+
+  function findRanges(text, e) {
+    const out = [];
+    e.re.lastIndex = 0;
+    let m;
+    while ((m = e.re.exec(text))) {
+      if (!m[0].length) { e.re.lastIndex++; continue; }
+      const s = m.index, en = s + m[0].length;
+      const prev = text[s - 1], next = text[en];
+      if (e.ascii && (isLatin(prev) || isLatin(next))) continue;
+      if (e.word === "암" && (isHangul(prev) || (isHangul(next) && !AM_NEXT.has(next)))) continue;
+      const ex = EXCEPTIONS[e.word];
+      if (ex && ex.some((x) => text.slice(s, s + x.length + 4).replace(/\s+/g, "").startsWith(x))) continue;
+      out.push([s, en]);
+    }
+    return out;
+  }
+
+  function splitSentences(text) {
+    return text.split(/\n+|(?<=[.!?。…])\s+/).map((s) => s.trim()).filter(Boolean);
+  }
+
+  function analyze(segments) {
+    const sentences = [];
+    const seen = new Set();
+    segments.forEach((seg) => {
+      splitSentences(seg.text).forEach((s) => {
+        const key = s.replace(/\s+/g, "");
+        if (seen.has(key)) return;
+        seen.add(key);
+        sentences.push({ text: s, t: seg.t, thumb: seg.thumb, src: seg.src });
+      });
+    });
+
+    const hits = [];
+    sentences.forEach((S) => {
+      const found = [];
+      DICT.forEach((e) => { const r = findRanges(S.text, e); if (r.length) found.push({ e, r }); });
+      const pick = (stage, role) => found.filter((x) => x.e.stage === stage && (!role || x.e.role === role));
+      const ranges = (xs) => xs.flatMap((x) => x.r);
+
+      pick("ban").forEach((x) => hits.push({
+        level: "ban", tag: "금지 표현", title: x.e.word, S, ranges: x.r,
+        basis: x.e.cat + " · " + x.e.basis
+      }));
+
+      const expert = pick("combo_expert", "expert"), verb = pick("combo_expert", "verb");
+      const strongVerb = verb.filter((x) => x.e.word !== "사용");
+      if (expert.length && strongVerb.length) {
+        hits.push({ level: "ban", tag: "금지 조합", title: expert[0].e.word + " + " + strongVerb[0].e.word, S,
+          ranges: ranges(expert.concat(strongVerb)), basis: "전문가 추천·보증 · " + expert[0].e.basis });
+      } else if (expert.length && verb.length) {
+        hits.push({ level: "review", reason: "expert_use", tag: "문맥 확인", title: expert[0].e.word + " + 사용", S,
+          ranges: ranges(expert.concat(verb)), basis: REVIEW_REASON.expert_use });
+      } else if (expert.length) {
+        hits.push({ level: "review", reason: "expert_only", tag: "문맥 확인", title: expert[0].e.word, S,
+          ranges: ranges(expert), basis: REVIEW_REASON.expert_only });
+      }
+
+      const disease = pick("combo_disease", "disease"), effect = pick("combo_disease", "effect");
+      if (disease.length && effect.length) {
+        hits.push({ level: "ban", tag: "금지 조합", title: disease[0].e.word + " + " + effect[0].e.word, S,
+          ranges: ranges(disease.concat(effect)), basis: "질병 예방·치료 표방 · " + disease[0].e.basis });
+      } else if (disease.length) {
+        hits.push({ level: "review", reason: "disease_only", tag: "문맥 확인", title: disease[0].e.word, S,
+          ranges: ranges(disease), basis: REVIEW_REASON.disease_only });
+      }
+    });
+    return { sentences, hits };
+  }
+
+  // ---------------------------------------------------------------
+  // 화면 전환 (undersign-assist와 같은 느낌: 옅어지며 옆에서 들어온다, 280ms)
+  // ---------------------------------------------------------------
+  const $ = (s) => document.querySelector(s);
+  const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let current = "home";
+  const history = [];
+  let switching = null;
+
+  function show(id, dir) {
+    dir = dir || "fwd";
+    if (id === current) return;
+    const from = $("#s-" + current), to = $("#s-" + id);
+    if (switching) switching.finish();
+    if (dir === "fwd" && current !== "run") history.push(current);
+    current = id;
+    updateBar(to);
+    const dx = dir === "back" ? "-6%" : "6%";
+    const out = from.animate([{ opacity: 1 }, { opacity: 0 }], { duration: reduceMotion() ? 60 : 120, easing: "ease-in" });
+    switching = out;
+    out.onfinish = () => {
+      switching = null;
+      from.hidden = true;
+      to.hidden = false;
+      window.scrollTo(0, 0);
+      to.animate(
+        reduceMotion()
+          ? [{ opacity: 0 }, { opacity: 1 }]
+          : [{ opacity: 0, transform: "translateX(" + dx + ")" }, { opacity: 1, transform: "none" }],
+        { duration: 280, easing: "cubic-bezier(0, 0, 0.2, 1)" }
+      );
+      const h = to.querySelector("h1");
+      if (h) h.focus({ preventScroll: true });
+    };
+  }
+
+  function back() {
+    if (current === "run") { stopRun(); return; }
+    const prev = history.pop() || "home";
+    show(prev, "back");
+  }
+
+  function updateBar(screen) {
+    const step = Number(screen.dataset.step);
+    $("#backBtn").hidden = step < 0;
+    const dots = $("#dots");
+    dots.hidden = step < 0;
+    const labels = ["고르기", "확인", "결과"];
+    dots.querySelectorAll(".dot").forEach((d, i) => {
+      d.classList.toggle("filled", i < step || (step === 2 && i === 2));
+      d.classList.toggle("current", i === step && step !== 2);
+    });
+    dots.setAttribute("aria-label", step >= 0 ? "3단계 중 " + (step + 1) + "번째, " + labels[step] : "");
+  }
+
+  $("#backBtn").addEventListener("click", back);
+  document.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => show(b.dataset.go)));
+  $("#dictCount").textContent = "식품표시광고법 시행령·식약처 고시에서 모은 " + DICT.length + "개 표현";
+
+  // ---------------------------------------------------------------
+  // Claude (아티팩트 sample 기능) — 화면 글자 읽기와 문맥 확인에 쓴다
+  // ---------------------------------------------------------------
+  const samplePromise = (window.claude && window.claude.use) ? window.claude.use("sample") : Promise.resolve(null);
+
+  const ERROR_COPY = {
+    not_granted: "Claude 사용을 허용해야 영상 글자를 읽을 수 있어요. 다시 시도하면 허용 창이 다시 뜨지 않으니, 페이지를 새로 열어 주세요.",
+    sampling_disabled: "이 계정에서는 Claude를 쓸 수 없어서 영상 글자를 읽지 못했어요.",
+    images_unavailable: "이 화면에서는 이미지 읽기를 쓸 수 없어요. 글자로 직접 입력하면 같은 기준으로 확인할 수 있어요.",
+    image_rejected: "장면 이미지를 보내지 못했어요. 다른 영상으로 시도해 주세요.",
+    rate_limited: "요청이 많아요. 잠시 뒤에 다시 시도해 주세요.",
+    session_expired: "로그인이 만료됐어요. 다시 로그인한 뒤 시도해 주세요.",
+    invalid_json: "읽은 결과를 해석하지 못했어요. 다시 시도해 주세요.",
+    refused: "이 영상은 읽을 수 없다는 답을 받았어요.",
+    prompt_too_large: "영상이 너무 길어요. 1분 이내로 잘라서 올려 주세요.",
+    no_sample: "이 화면에서는 Claude를 쓸 수 없어요. claude.ai에 로그인한 상태로 열면 영상 글자를 읽을 수 있어요."
+  };
+  const errText = (e) => ERROR_COPY[e && e.code] || "연결이 잠깐 끊겼어요. 다시 시도해 주세요.";
+
+  // ---------------------------------------------------------------
+  // 영상 고르기
+  // ---------------------------------------------------------------
+  let pickedFile = null, previewUrl = null;
+  const fileInput = $("#fileInput"), drop = $("#drop");
+
+  function fmtTime(t) {
+    if (t == null || !isFinite(t)) return "";
+    t = Math.max(0, Math.floor(t));
+    return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
+  }
+
+  function setFile(file) {
+    if (!file) return;
+    if (!/^video\//.test(file.type) && !/\.(mp4|mov|m4v|webm|mkv)$/i.test(file.name)) {
+      $("#pickedName").textContent = file.name;
+      $("#pickedInfo").textContent = "영상 파일이 아니에요. 다른 파일을 골라 주세요.";
+      $("#picked").hidden = false; drop.hidden = true; $("#startVideo").disabled = true;
+      return;
+    }
+    pickedFile = file;
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = URL.createObjectURL(file);
+    const pv = $("#preview");
+    pv.src = previewUrl;
+    $("#pickedName").textContent = file.name;
+    $("#pickedInfo").textContent = (file.size / 1048576).toFixed(1) + "MB";
+    pv.onloadedmetadata = () => {
+      const d = pv.duration;
+      $("#pickedInfo").textContent = (isFinite(d) ? fmtTime(d) + " · " : "") + (file.size / 1048576).toFixed(1) + "MB";
+    };
+    pv.onerror = () => { $("#pickedInfo").textContent = "이 브라우저에서 열 수 없는 영상 형식이에요. mp4로 저장해 다시 올려 주세요."; };
+    $("#picked").hidden = false;
+    drop.hidden = true;
+    $("#startVideo").disabled = false;
+  }
+
+  fileInput.addEventListener("change", () => setFile(fileInput.files[0]));
+  $("#changeFile").addEventListener("click", () => fileInput.click());
+  ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", (e) => setFile(e.dataTransfer.files[0]));
+
+  // ---------------------------------------------------------------
+  // 글자로 입력
+  // ---------------------------------------------------------------
+  const textInput = $("#textInput");
+  const syncText = () => { $("#startText").disabled = !textInput.value.trim(); };
+  textInput.addEventListener("input", syncText);
+  document.querySelectorAll("[data-ex]").forEach((b) => b.addEventListener("click", () => {
+    textInput.value = EXAMPLES[Number(b.dataset.ex)];
+    syncText();
+  }));
+
+  // ---------------------------------------------------------------
+  // 장면 뽑기
+  // ---------------------------------------------------------------
+  const probe = $("#probe");
+
+  function waitEvent(el, ok, ms) {
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(() => { cleanup(); reject({ code: "video_timeout" }); }, ms || 10000);
+      const onOk = () => { cleanup(); resolve(); };
+      const onErr = () => { cleanup(); reject({ code: "video_error" }); };
+      function cleanup() { clearTimeout(t); el.removeEventListener(ok, onOk); el.removeEventListener("error", onErr); }
+      el.addEventListener(ok, onOk);
+      el.addEventListener("error", onErr);
+    });
+  }
+
+  async function seek(t) {
+    const p = waitEvent(probe, "seeked", 8000);
+    probe.currentTime = t;
+    await p;
+  }
+
+  async function loadProbe(file) {
+    const url = URL.createObjectURL(file);
+    const p = waitEvent(probe, "loadeddata", 15000);
+    probe.src = url;
+    probe.load();
+    await p;
+    let d = probe.duration;
+    if (!isFinite(d)) { // 화면 녹화(webm)는 길이가 비어 있는 경우가 있어 끝까지 한 번 넘겨서 알아낸다
+      await seek(1e7);
+      d = probe.duration;
+      if (!isFinite(d)) d = probe.currentTime;
+    }
+    return { url, duration: d };
+  }
+
+  function grab(maxSide) {
+    const w = probe.videoWidth, h = probe.videoHeight;
+    const k = Math.min(1, maxSide / Math.max(w, h));
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+    c.getContext("2d").drawImage(probe, 0, 0, c.width, c.height);
+    return c;
+  }
+
+  // 장면 바뀜 감지: 96x96 회색조로 줄인 뒤 12x12 칸마다 차이를 재고, 가장 크게 바뀐 칸을 본다.
+  // 화면 전체 평균으로 재면 작은 자막 한 줄이 바뀐 것을 놓친다.
+  const SIG = 96, CELL = 12;
+  function signature(canvas) {
+    const c = document.createElement("canvas");
+    c.width = SIG; c.height = SIG;
+    const x = c.getContext("2d", { willReadFrequently: true });
+    x.drawImage(canvas, 0, 0, SIG, SIG);
+    const d = x.getImageData(0, 0, SIG, SIG).data;
+    const g = new Uint8Array(SIG * SIG);
+    for (let i = 0; i < g.length; i++) g[i] = (d[i * 4] * 3 + d[i * 4 + 1] * 6 + d[i * 4 + 2]) / 10;
+    return g;
+  }
+  function sigDiff(a, b) {
+    let worst = 0;
+    for (let cy = 0; cy < SIG; cy += CELL) {
+      for (let cx = 0; cx < SIG; cx += CELL) {
+        let s = 0;
+        for (let y = cy; y < cy + CELL; y++) for (let x = cx; x < cx + CELL; x++) s += Math.abs(a[y * SIG + x] - b[y * SIG + x]);
+        worst = Math.max(worst, s / (CELL * CELL));
+      }
+    }
+    return worst;
+  }
+  const toBlob = (c) => new Promise((r) => c.toBlob(r, "image/jpeg", 0.86));
+
+  async function extractFrames(file, maxFrames, run) {
+    const { url, duration } = await loadProbe(file);
+    try {
+      if (!(duration > 0)) throw { code: "video_error" };
+      const candidates = Math.max(1, Math.min(80, Math.ceil(duration / 0.75)));
+      const kept = [];
+      let lastSig = null;
+      for (let i = 0; i < candidates; i++) {
+        if (run.stopped) throw { code: "cancelled" };
+        const t = Math.min(Math.max(0, duration - 0.05), (i + 0.5) * duration / candidates);
+        await seek(t);
+        const big = grab(1280);
+        const sig = signature(big);
+        if (!lastSig || sigDiff(sig, lastSig) > 12) {
+          kept.push({ t, canvas: big });
+          lastSig = sig;
+        }
+        setStep("frames", "doing", (i + 1) + " / " + candidates + " 구간 확인, 장면 " + kept.length + "장");
+      }
+      let frames = kept;
+      if (frames.length > maxFrames) { // 너무 많으면 고르게 줄인다
+        const pickN = [];
+        for (let j = 0; j < maxFrames; j++) pickN.push(frames[Math.round(j * (frames.length - 1) / (maxFrames - 1))]);
+        frames = Array.from(new Set(pickN));
+      }
+      for (const f of frames) {
+        f.blob = await toBlob(f.canvas);
+        const small = document.createElement("canvas");
+        const k = 160 / Math.max(f.canvas.width, f.canvas.height);
+        small.width = Math.round(f.canvas.width * k); small.height = Math.round(f.canvas.height * k);
+        small.getContext("2d").drawImage(f.canvas, 0, 0, small.width, small.height);
+        f.thumb = small.toDataURL("image/jpeg", 0.7);
+        f.canvas = null;
+        const img = document.createElement("img");
+        img.src = f.thumb; img.alt = "";
+        $("#thumbs").appendChild(img);
+      }
+      return { frames, duration };
+    } finally {
+      probe.removeAttribute("src");
+      probe.load();
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // 화면 글자 읽기 (Claude가 장면 이미지를 보고 글자를 옮겨 적는다)
+  // ---------------------------------------------------------------
+  async function readFrames(sample, frames, run) {
+    const lines = [];
+    const batchSize = run.maxPerCall;
+    for (let b = 0; b < frames.length; b += batchSize) {
+      const batch = frames.slice(b, b + batchSize);
+      const list = batch.map((f, i) => (i + 1) + "번 " + fmtTime(f.t)).join(", ");
+      const prompt =
+        "아래 이미지 " + batch.length + "장은 한 식품 광고 영상에서 시간 순서대로 뽑은 장면이다. 장면 번호와 시각: " + list + ".\n" +
+        "각 장면 화면에 보이는 글자(자막, 상품명, 홍보 문구, 작은 안내 글씨 포함)를 보이는 그대로 옮겨 적어라. " +
+        "고치거나 요약하거나 번역하지 마라. 화면의 줄이 바뀌면 lines 배열의 다른 항목으로 나눠라. 글자가 없는 장면은 빈 배열로 둔다.\n" +
+        '장면마다 하나씩, JSON 배열 하나로만 답하라. 예: [{"n":1,"lines":["첫 줄","둘째 줄"]},{"n":2,"lines":[]}]';
+      setStep("ocr", "doing", frames.length > batchSize
+        ? "Claude가 장면을 읽고 있어요 (" + (b / batchSize + 1) + "/" + Math.ceil(frames.length / batchSize) + ")"
+        : "Claude가 장면 " + frames.length + "장을 읽고 있어요");
+      const res = await sample.json(prompt, { images: batch.map((f) => f.blob), signal: run.ctl.signal });
+      const arr = Array.isArray(res) ? res : (res && Array.isArray(res.scenes) ? res.scenes : []);
+      arr.forEach((item, idx) => {
+        const n = Number(item && item.n) || idx + 1;
+        const f = batch[n - 1] || batch[idx];
+        if (!f) return;
+        const ls = Array.isArray(item.lines) ? item.lines : (typeof item.text === "string" ? item.text.split("\n") : []);
+        ls.forEach((l) => { l = String(l).trim(); if (l) lines.push({ text: l, t: f.t, thumb: f.thumb, src: "screen" }); });
+      });
+    }
+    return lines;
+  }
+
+  // ---------------------------------------------------------------
+  // 문맥 확인 (오인 소지가 있는 표현만 Claude에게 묻는다)
+  // ---------------------------------------------------------------
+  async function reviewContext(sample, reviewHits, allSentences, run) {
+    const context = allSentences.map((s) => s.text).join("\n").slice(0, 3000);
+    const items = reviewHits.map((h, i) => (i + 1) + ". " + h.S.text + "\n   걸린 이유: " + h.basis).join("\n");
+    const prompt =
+      "너는 식품 등의 표시·광고에 관한 법률 기준으로 광고 문구를 검토하는 보조자다. 법률 판단을 단정하지 말고 '~로 보여요' 말투로 쓴다.\n" +
+      "기준:\n" +
+      "- 질병의 예방·치료에 효능이 있는 것으로 인식할 우려가 있는 표시·광고는 금지된다 (시행령 별표1 제1호).\n" +
+      "- 의사·치과의사·한의사·수의사·약사·한약사·대학교수 등이 제품을 지정·공인·추천·지도·사용한다는 광고는 금지된다. 연구·개발에 참여했다는 사실만 밝히는 것은 허용된다 (시행령 별표1 제5호라목).\n\n" +
+      "광고에서 읽은 전체 글자(앞뒤 문맥):\n\"\"\"\n" + context + "\n\"\"\"\n\n" +
+      "검토할 문장:\n" + items + "\n\n" +
+      "각 문장이 소비자를 오인하게 할 소지가 있는지 판단하라. JSON 객체 하나로만 답하라:\n" +
+      '{"misleading": true 또는 false, "summary": "전체 판단 2문장", "items": [{"n": 1, "misleading": true 또는 false, "reason": "한 문장"}]}';
+    return sample.json(prompt, { signal: run.ctl.signal });
+  }
+
+  // ---------------------------------------------------------------
+  // 실행
+  // ---------------------------------------------------------------
+  let run = null;
+  let lastJob = null;
+
+  function setStep(k, state, sub) {
+    const li = document.querySelector('#steps li[data-k="' + k + '"]');
+    if (!li) return;
+    li.dataset.state = state;
+    if (sub != null) li.querySelector(".st-sub").textContent = sub;
+  }
+
+  function resetRunScreen(kind) {
+    $("#runTitle").textContent = kind === "video" ? "영상을 확인하고 있어요" : "문구를 확인하고 있어요";
+    $("#runLead").textContent = kind === "video" ? "영상 길이에 따라 1분쯤 걸릴 수 있어요." : "금방 끝나요.";
+    $("#thumbs").textContent = "";
+    $("#runErr").hidden = true;
+    $("#stopBtn").hidden = false;
+    $("#retryBtn").hidden = true;
+    $("#toTextBtn").hidden = true;
+    const subs = { frames: "", ocr: "", dict: "", ai: "애매한 표현이 있을 때만 해요" };
+    Object.keys(subs).forEach((k) => setStep(k, "wait", subs[k]));
+    document.querySelector('#steps li[data-k="frames"]').hidden = kind !== "video";
+    document.querySelector('#steps li[data-k="ocr"]').hidden = kind !== "video";
+  }
+
+  function stopRun() {
+    if (run) { run.stopped = true; run.ctl.abort(); }
+    run = null;
+    const prev = history.pop() || "home";
+    show(prev, "back");
+  }
+
+  function failRun(e, kind) {
+    if (e && e.code === "cancelled") return;
+    const k = ["frames", "ocr", "dict", "ai"].find((s) => document.querySelector('#steps li[data-k="' + s + '"]').dataset.state === "doing");
+    if (k) setStep(k, "fail");
+    $("#runTitle").textContent = "확인을 끝내지 못했어요";
+    $("#runLead").textContent = "";
+    const msg = e && (e.code === "video_error" || e.code === "video_timeout")
+      ? "이 브라우저에서 영상을 열지 못했어요. mp4(H.264) 형식으로 저장해 다시 올려 주세요."
+      : errText(e);
+    $("#runErr").textContent = msg;
+    $("#runErr").hidden = false;
+    $("#stopBtn").hidden = true;
+    $("#retryBtn").hidden = false;
+    $("#toTextBtn").hidden = kind !== "video";
+  }
+
+  async function start(job) {
+    lastJob = job;
+    resetRunScreen(job.kind);
+    if (current !== "run") show("run");
+    const my = { stopped: false, ctl: new AbortController(), maxPerCall: 10 };
+    run = my;
+    try {
+      const sample = await samplePromise;
+      let segments = [];
+
+      if (job.kind === "video") {
+        if (!sample) throw { code: "no_sample" };
+        const caps = await sample.limits().catch(() => null);
+        if (!caps || !caps.images) throw { code: "images_unavailable" };
+        my.maxPerCall = Math.max(1, Math.min(caps.images.maxCount || 10, 16));
+        const maxFrames = Math.min(my.maxPerCall * 2, 24);
+        setStep("frames", "doing", "영상을 여는 중");
+        const { frames, duration } = await extractFrames(job.file, maxFrames, my);
+        if (my.stopped) return;
+        setStep("frames", "done", fmtTime(duration) + " 영상에서 장면 " + frames.length + "장");
+        setStep("ocr", "doing");
+        segments = await readFrames(sample, frames, my);
+        if (my.stopped) return;
+        setStep("ocr", "done", "글자 " + segments.length + "줄을 읽었어요");
+      } else {
+        segments = job.text.split(/\n+/).map((t) => ({ text: t, t: null, thumb: null, src: "text" }));
+      }
+      if (job.narration) {
+        job.narration.split(/\n+/).forEach((t) => { if (t.trim()) segments.push({ text: t.trim(), t: null, thumb: null, src: "voice" }); });
+      }
+
+      setStep("dict", "doing", DICT.length + "개 표현과 대조하는 중");
+      const result = analyze(segments);
+      const ban = result.hits.filter((h) => h.level === "ban");
+      const review = result.hits.filter((h) => h.level === "review");
+      setStep("dict", "done", "금지 " + ban.length + "건, 문맥 확인 " + review.length + "건");
+
+      let ai = null, aiError = null;
+      if (ban.length) {
+        setStep("ai", "skip", "금지 표현이 있어서 바로 판정했어요");
+      } else if (!review.length) {
+        setStep("ai", "skip", "확인할 표현이 없어요");
+      } else if (!sample) {
+        aiError = { code: "no_sample" };
+        setStep("ai", "fail", "이 화면에서는 AI를 쓸 수 없어요");
+      } else {
+        setStep("ai", "doing", "Claude가 문장 " + review.length + "개를 보고 있어요");
+        try {
+          ai = await reviewContext(sample, review, result.sentences, my);
+          setStep("ai", "done", "확인했어요");
+        } catch (e) {
+          if (e && e.code === "cancelled") return;
+          aiError = e;
+          setStep("ai", "fail", errText(e));
+        }
+      }
+      if (my.stopped) return;
+      run = null;
+      renderResult(job, result, ai, aiError);
+      setTimeout(() => show("result"), 350);
+    } catch (e) {
+      if (my.stopped) return;
+      run = null;
+      failRun(e, job.kind);
+    }
+  }
+
+  $("#startVideo").addEventListener("click", () => {
+    if (!pickedFile) return;
+    start({ kind: "video", file: pickedFile, narration: $("#narration").value.trim() });
+  });
+  $("#startText").addEventListener("click", () => {
+    const t = textInput.value.trim();
+    if (t) start({ kind: "text", text: t });
+  });
+  $("#stopBtn").addEventListener("click", stopRun);
+  $("#retryBtn").addEventListener("click", () => { if (lastJob) start(lastJob); });
+  $("#toTextBtn").addEventListener("click", () => show("text"));
+  $("#againBtn").addEventListener("click", () => { history.length = 0; show("home", "back"); });
+
+  // ---------------------------------------------------------------
+  // 결과 그리기
+  // ---------------------------------------------------------------
+  const ICONS = {
+    ban: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><path d="M16 8v10"/><circle cx="16" cy="24" r="0.6" fill="currentColor"/></svg>',
+    warn: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12.5a4 4 0 1 1 5.5 3.7c-1 .4-1.5 1.2-1.5 2.3v.5"/><circle cx="16" cy="24" r="0.6" fill="currentColor"/></svg>',
+    ok: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 16.5l4.5 4.5L23 11.5"/></svg>'
+  };
+
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  function highlighted(text, ranges) {
+    const p = el("p", "hit-sent");
+    const rs = ranges.slice().sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    rs.forEach((r) => {
+      const last = merged[merged.length - 1];
+      if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1]); else merged.push(r.slice());
+    });
+    let i = 0;
+    merged.forEach(([s, e]) => {
+      if (s > i) p.appendChild(document.createTextNode(text.slice(i, s)));
+      p.appendChild(el("mark", null, text.slice(s, e)));
+      i = e;
+    });
+    if (i < text.length) p.appendChild(document.createTextNode(text.slice(i)));
+    return p;
+  }
+
+  function renderResult(job, result, ai, aiError) {
+    const ban = result.hits.filter((h) => h.level === "ban");
+    const review = result.hits.filter((h) => h.level === "review");
+    const aiItems = {};
+    if (ai && Array.isArray(ai.items)) ai.items.forEach((it) => { aiItems[Number(it.n)] = it; });
+    const reviewFlagged = review.filter((h, i) => {
+      const it = aiItems[i + 1];
+      return it ? !!it.misleading : !!(ai && ai.misleading);
+    });
+
+    let level, title, lead;
+    if (ban.length) {
+      level = "ban"; title = "금지된 표현이 들어 있어요";
+      lead = "식품 표시·광고법이 쓰지 못하게 정한 표현이 나왔어요. 부당광고에 해당할 가능성이 높아요.";
+    } else if (review.length && ai && reviewFlagged.length) {
+      level = "warn"; title = "소비자가 오해할 수 있는\n표현이 있어요";
+      lead = "금지어는 없지만, AI가 문맥을 보니 부당광고로 의심되는 표현이 있어요.";
+    } else if (review.length && !ai) {
+      level = "warn"; title = "확인이 필요한 표현이 있어요";
+      lead = "금지어는 없지만 문맥을 봐야 하는 표현이 있어요. AI 확인을 하지 못했어요.";
+    } else {
+      level = "ok"; title = "문제가 되는 표현을\n찾지 못했어요";
+      lead = review.length ? "문맥을 확인한 표현도 오해 소지가 낮아 보여요." : "금지어 사전에 있는 표현이 나오지 않았어요.";
+    }
+    const v = $("#verdict");
+    v.dataset.level = level;
+    $("#vIcon").innerHTML = ICONS[level];
+    $("#vTitle").textContent = "";
+    title.split("\n").forEach((line, i) => { if (i) $("#vTitle").appendChild(document.createElement("br")); $("#vTitle").appendChild(document.createTextNode(line)); });
+    $("#vLead").textContent = lead;
+
+    const counts = $("#vCounts");
+    counts.textContent = "";
+    if (ban.length) counts.appendChild(el("span", "count ban", "금지 " + ban.length + "건"));
+    if (review.length) counts.appendChild(el("span", "count warn", "문맥 확인 " + review.length + "건"));
+    counts.appendChild(el("span", "count", (job.kind === "video" ? "읽은 문장 " : "문장 ") + result.sentences.length + "개"));
+
+    const list = $("#hits");
+    list.textContent = "";
+    const ordered = ban.concat(review);
+    if (!ordered.length) list.appendChild(el("li", "empty", "사전에 있는 표현이 나오지 않았어요."));
+    ordered.forEach((h) => {
+      const li = el("li", "hit " + (h.level === "ban" ? "lv-ban" : "lv-review"));
+      if (h.S.thumb) {
+        const fig = el("figure", "hit-thumb");
+        const img = el("img"); img.src = h.S.thumb; img.alt = fmtTime(h.S.t) + " 장면";
+        fig.appendChild(img);
+        fig.appendChild(el("figcaption", null, fmtTime(h.S.t)));
+        li.appendChild(fig);
+      }
+      const body = el("div", "hit-body");
+      const head = el("div", "hit-head");
+      head.appendChild(el("span", "tag " + (h.level === "ban" ? "ban" : "warn"), h.tag));
+      head.appendChild(el("b", null, h.title));
+      if (h.S.src === "voice") head.appendChild(el("span", "tag plain", "나레이션"));
+      if (h.level === "review" && ai) {
+        const it = aiItems[review.indexOf(h) + 1];
+        const flagged = it ? !!it.misleading : !!ai.misleading;
+        head.appendChild(el("span", "tag " + (flagged ? "ban" : "ok"), flagged ? "오해 소지 있음" : "문제 없어 보임"));
+      }
+      body.appendChild(head);
+      body.appendChild(highlighted(h.S.text, h.ranges));
+      body.appendChild(el("p", "hit-basis", h.basis));
+      if (h.level === "review" && ai) {
+        const it = aiItems[review.indexOf(h) + 1];
+        if (it && it.reason) body.appendChild(el("p", "hit-ai", String(it.reason)));
+      }
+      li.appendChild(body);
+      list.appendChild(li);
+    });
+
+    const aiBlock = $("#aiBlock");
+    if (ai && ai.summary) {
+      aiBlock.hidden = false;
+      $("#aiSummary").textContent = String(ai.summary);
+    } else if (aiError) {
+      aiBlock.hidden = false;
+      $("#aiSummary").textContent = errText(aiError);
+    } else {
+      aiBlock.hidden = true;
+    }
+
+    const raw = $("#rawList");
+    raw.textContent = "";
+    result.sentences.forEach((s) => {
+      const li = el("li");
+      li.appendChild(el("span", null, s.src === "voice" ? "말" : (s.t != null ? fmtTime(s.t) : "·")));
+      li.appendChild(el("div", null, s.text));
+      raw.appendChild(li);
+    });
+    $("#rawSummary").textContent = "읽은 글자 전체 보기 (" + result.sentences.length + "문장)";
+  }
+
+  updateBar($("#s-home"));
+})();
+</script>
