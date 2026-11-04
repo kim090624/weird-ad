@@ -65,28 +65,37 @@ python3 app.py
 이 저장소에는 `Dockerfile`이 포함되어 있어서, 서버 쪽에 ffmpeg/tesseract(한국어팩)를
 자동으로 설치하도록 되어 있다 — 즉 접속하는 사람도, 배포하는 사람도 따로 설치할 게 없다.
 
-**Render (무료 티어) 로 배포하는 법**
+**Render (무료 티어) 로 배포하는 법 — `render.yaml`로 원클릭 (undersign-assist와 같은 방식)**
+
+이 저장소에는 `render.yaml`이 포함되어 있어서, Render의 "Blueprint" 기능으로
+설정을 하나하나 입력할 필요 없이 한 번에 만들어진다.
 
 1. https://render.com 가입 (GitHub 계정으로 로그인 가능)
-2. "New +" → "Web Service" 선택
-3. 이 GitHub 저장소(`kim090624/weird-ad`) 연결
-4. 설정:
-   - **Environment**: `Docker` 선택 (저장소에 있는 `Dockerfile`을 자동으로 인식함)
-   - **Instance Type**: Free
-5. "Environment Variables"에 추가:
-   - `ANTHROPIC_API_KEY` = `sk-ant-...` (본인 키)
-6. "Create Web Service" 클릭 → 빌드 로그가 뜨면서 몇 분 기다리면
-   `https://weird-ad-xxxx.onrender.com` 같은 주소가 생성됨
-7. 이 주소를 아무한테나 공유하면, 본인 컴퓨터가 꺼져 있어도 접속 가능
+2. "New +" → **"Blueprint"** 선택
+3. 이 GitHub 저장소(`kim090624/weird-ad`) 연결 → `render.yaml`을 자동으로 읽어서
+   서비스 설정(Docker, 헬스체크 경로 등)이 전부 채워짐
+4. `ANTHROPIC_API_KEY`만 직접 입력 (본인 키 — `render.yaml`에 비밀값은 안 적혀 있어서 여기서만 넣음)
+5. "Apply" → 빌드 로그가 뜨면서 몇 분 기다리면 `https://weird-ad.onrender.com` 생성됨
+6. 이 주소를 아무한테나 공유하면, 본인 컴퓨터가 꺼져 있어도 접속 가능
+
+(`render.yaml` 없이 수동으로 하려면: "New +" → "Web Service" → 저장소 연결 →
+Environment를 `Docker`로, Instance Type을 Free로 선택하면 동일하게 동작한다.)
+
+**무료 티어가 잠드는 문제 — `.github/workflows/keep-awake.yml`로 자동 대응**
+
+Render 무료 티어는 15분 동안 요청이 없으면 서버가 잠들고, 다시 깨우는 데 몇십 초 걸린다.
+이 저장소에는 10분마다 `/api/health`를 핑하는 GitHub Actions가 들어있어서
+(undersign-assist와 같은 방식), 평소엔 거의 잠들지 않는다. 그래도 해커톤 심사
+**직전에는 한 번 더 직접 접속해서 깨워두는 걸 권장** (`https://weird-ad.onrender.com/api/health` 열어보기).
 
 **주의할 점**
-- 무료 티어는 한동안 아무도 안 들어오면 서버가 잠들었다가, 누가 들어오면 다시 깨어남
-  (깨어나는 데 몇십 초 정도 걸릴 수 있음 — 해커톤 심사 직전에 한 번 미리 접속해서 깨워두면 좋음)
 - faster-whisper(STT)는 처음 실행 시 모델 파일을 받느라 느릴 수 있음 — 무료 티어 메모리가
   부족하면 STT 체크박스를 끄고 OCR만 쓰는 것도 방법
 - Dockerfile은 이 환경(개발 샌드박스)에 Docker가 없어서 직접 빌드 테스트는 못 했음.
   `ffmpeg`/`tesseract-ocr`/`tesseract-ocr-kor`는 Debian 계열 표준 패키지명이라
   일반적으로 문제없이 설치되지만, Render에 처음 배포할 때 빌드 로그를 한 번 확인할 것
+- 서비스 이름을 `weird-ad`가 아닌 다른 이름으로 만들면, 실제 주소와
+  `keep-awake.yml`에 적힌 주소가 달라지므로 그 파일 안의 URL도 맞춰서 수정할 것
 
 ## CLI로 실행하기 (터미널에서 바로)
 

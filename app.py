@@ -35,6 +35,13 @@ UPLOAD_TMP_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_EXT = {".mp4", ".mov", ".mkv", ".webm"}
 
 
+@app.route("/api/health", methods=["GET"])
+def health():
+    # Render 등 배포 플랫폼의 헬스체크용 + 무료 티어가 잠드는 것을 막는
+    # GitHub Actions "깨우기" 핑이 치는 엔드포인트
+    return {"status": "ok"}, 200
+
+
 @app.route("/", methods=["GET"])
 def index():
     deps = check_dependencies()

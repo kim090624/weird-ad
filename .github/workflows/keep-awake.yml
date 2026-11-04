@@ -1,0 +1,16 @@
+# Render 무료 티어는 15분 동안 요청이 없으면 잠든다.
+# 10분마다 헬스체크 엔드포인트를 핑해서 깨어있게 유지한다.
+# (그래도 시연 직전에는 수동으로 한 번 더 열어보는 걸 권장 — 첫 깨우기는 몇십 초 걸릴 수 있음)
+name: Keep Render awake
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint
+        run: curl -fsS "https://weird-ad.onrender.com/api/health" || true
