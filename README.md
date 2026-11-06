@@ -93,7 +93,8 @@ python tests/test_engine.py                 # 판단엔진 시험
 
 ## 확인한 것 / 못 한 것 (2026-11-06)
 
-- 확인: 6초 시험 영상(자막 2개)을 서버에 올려 장면 3장 → Tesseract → 금지 조합 2건까지 화면에 표시.
-  AI 키 없을 때 "확인이 필요한 표현" 처리. 시험 문장 17개에서 파이썬과 웹 판단 결과가 같음.
-- 못 한 것 (개발 환경에서 PyPI에 접근할 수 없어서): faster-whisper 음성 인식, anthropic SDK 호출,
-  Docker 빌드. Render 첫 배포 때 빌드 로그와 `/api/status`로 확인한다.
+- 배포: https://weird-ad.onrender.com 에서 동작 중. Docker 빌드 성공, `/api/status`에서
+  ffmpeg, Tesseract 한국어, faster-whisper, anthropic 모두 설치 확인.
+- 배포 서버에 `tests/samples/caption_test.webm`을 올려 장면 3장 → 글자 2줄 → 금지 조합 2건 (13.6초).
+- 글자 입력: 금지 조합과 문맥 확인이 섞인 문장도 기대대로 판정. 시험 문장 17개에서 파이썬과 웹 판단 결과가 같음.
+- 못 한 것: 말소리가 든 영상으로 음성 인식 시험(시험 영상에 소리가 없음), AI 키로 문맥 확인 호출(키 없음).
