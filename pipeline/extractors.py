@@ -1,205 +1,157 @@
 """
-텍스트 추출 모듈
-- OCR: 영상 프레임에서 화면에 보이는 텍스트(자막, 상품 문구 등) 추출
-- STT: 오디오 트랙에서 나레이션 텍스트 추출
+영상에서 글자 뽑기 — 서버 버전
 
-구현:
-  - 프레임/오디오 분리: ffmpeg (subprocess 호출)
-  - OCR: pytesseract (Tesseract OCR, 한국어 kor + 영어 eng)
-  - STT: faster-whisper (Whisper 모델의 경량 구현체)
+  화면 글자: ffmpeg로 장면을 뽑고, 화면이 바뀐 장면만 남겨 Tesseract(kor+eng)로 읽는다.
+  소리:      ffmpeg로 소리를 16kHz 모노 wav로 뽑아 faster-whisper로 한국어 문장을 만든다.
 
-사전 준비물 (이 파일이 실제로 동작하려면):
-  - 시스템: ffmpeg, tesseract-ocr (+ tesseract-ocr-kor 언어팩)
-  - 파이썬: pip install pytesseract pillow faster-whisper
+필요한 것: ffmpeg(ffprobe 포함), tesseract-ocr + 한국어 데이터(kor), pip: pytesseract pillow faster-whisper
 """
 
-from dataclasses import dataclass, field
-from pathlib import Path
-import subprocess
-import tempfile
+from __future__ import annotations
+
+import base64
+import io
+import json
+import os
 import shutil
+import subprocess
+from pathlib import Path
 
-from PIL import Image
-import pytesseract
+from PIL import Image, ImageChops
 
-
-@dataclass
-class TimedText:
-    """시간 정보가 있는 텍스트 조각 (자막 한 줄, 발화 한 문장 등)"""
-    text: str
-    start_sec: float
-    end_sec: float
-    source: str  # "ocr" 또는 "stt"
-
-
-@dataclass
-class ExtractedText:
-    video_id: str
-    ocr_segments: list[TimedText] = field(default_factory=list)
-    stt_segments: list[TimedText] = field(default_factory=list)
-
-    def all_segments(self) -> list[TimedText]:
-        """시간순 정렬된 전체 텍스트 조각"""
-        return sorted(self.ocr_segments + self.stt_segments, key=lambda t: t.start_sec)
-
-    def full_text(self) -> str:
-        """판단엔진에 넘길 전체 텍스트 (OCR + STT 합본)"""
-        return " ".join(seg.text for seg in self.all_segments())
+# 장면 바뀜 감지 (웹 버전과 같은 방식): 96x96 회색조로 줄여 12x12 칸마다 평균 차이를 재고,
+# 가장 크게 바뀐 칸이 기준보다 크면 새 장면으로 본다. 화면 전체 평균으로 재면 자막 한 줄 바뀐 것을 놓친다.
+SIG = 96
+CELLS = 8          # 96 / 12
+SCENE_DIFF = 12    # 0~255
+MAX_FRAMES = 60    # 이보다 길면 간격을 넓힌다
 
 
-def _run_ffmpeg(args: list[str]) -> None:
-    result = subprocess.run(
-        ["ffmpeg", "-y", *args],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"ffmpeg 실행 실패: {result.stderr.decode(errors='ignore')[-2000:]}")
+class ExtractError(Exception):
+    def __init__(self, code: str, message: str = ""):
+        super().__init__(message or code)
+        self.code = code
 
 
-class OCRExtractor:
-    """영상 프레임에서 화면 텍스트 추출 (Tesseract OCR)"""
-
-    def __init__(self, frame_interval_sec: float = 1.0, lang: str = "kor+eng"):
-        self.frame_interval_sec = frame_interval_sec
-        self.lang = lang
-        # psm 6 = "균일한 텍스트 블록"으로 가정하고 읽음.
-        # 기본 psm(3, 자동 레이아웃 분석)은 여백이 많고 글자가 적은
-        # 광고 자막류 프레임에서 "Empty page"로 오판하는 경우가 많아 고정값으로 지정.
-        self.tesseract_config = "--psm 6"
-
-    def _extract_frames(self, video_path: Path, out_dir: Path) -> list[Path]:
-        fps = 1.0 / self.frame_interval_sec
-        pattern = str(out_dir / "frame_%05d.png")
-        _run_ffmpeg(["-i", str(video_path), "-vf", f"fps={fps}", pattern])
-        return sorted(out_dir.glob("frame_*.png"))
-
-    def extract(self, video_path: Path) -> list[TimedText]:
-        segments: list[TimedText] = []
-        prev_text = None  # 직전 프레임과 같은 텍스트면 중복으로 보고 건너뜀
-
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_dir = Path(tmp)
-            frames = self._extract_frames(video_path, tmp_dir)
-
-            for idx, frame_path in enumerate(frames):
-                start_sec = idx * self.frame_interval_sec
-                end_sec = start_sec + self.frame_interval_sec
-
-                image = Image.open(frame_path)
-                text = pytesseract.image_to_string(
-                    image, lang=self.lang, config=self.tesseract_config
-                ).strip()
-                # 여러 줄 OCR 결과를 한 줄로 정리
-                text = " ".join(line.strip() for line in text.splitlines() if line.strip())
-
-                if not text:
-                    continue
-                if text == prev_text:
-                    # 같은 자막이 계속 떠있는 경우 → 중복 저장하지 않음
-                    continue
-
-                prev_text = text
-                segments.append(
-                    TimedText(text=text, start_sec=start_sec, end_sec=end_sec, source="ocr")
-                )
-
-        return segments
+def _run(args: list[str]) -> subprocess.CompletedProcess:
+    r = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if r.returncode != 0:
+        raise ExtractError("video_error", r.stderr.decode(errors="ignore")[-500:])
+    return r
 
 
-class STTExtractor:
-    """영상 오디오 트랙에서 발화 텍스트 추출 (faster-whisper)"""
-
-    def __init__(self, model_size: str = "small", language: str = "ko"):
-        self.model_size = model_size
-        self.language = language
-        self._model = None  # 지연 로딩 (무거운 모델이라 실제 호출 시점에 로드)
-
-    def _load_model(self):
-        if self._model is None:
-            try:
-                from faster_whisper import WhisperModel
-            except ImportError as e:
-                raise ImportError(
-                    "faster-whisper가 설치되어 있지 않습니다. "
-                    "`pip install faster-whisper` 로 설치하세요."
-                ) from e
-            self._model = WhisperModel(self.model_size, device="cpu", compute_type="int8")
-        return self._model
-
-    def _extract_audio(self, video_path: Path, out_path: Path) -> None:
-        _run_ffmpeg(
-            ["-i", str(video_path), "-vn", "-ac", "1", "-ar", "16000", str(out_path)]
-        )
-
-    def extract(self, video_path: Path) -> list[TimedText]:
-        model = self._load_model()
-
-        with tempfile.TemporaryDirectory() as tmp:
-            audio_path = Path(tmp) / "audio.wav"
-            self._extract_audio(video_path, audio_path)
-
-            segments_iter, _info = model.transcribe(
-                str(audio_path), language=self.language, vad_filter=True
-            )
-
-            segments = [
-                TimedText(
-                    text=seg.text.strip(),
-                    start_sec=seg.start,
-                    end_sec=seg.end,
-                    source="stt",
-                )
-                for seg in segments_iter
-                if seg.text.strip()
-            ]
-
-        return segments
+def probe(video: Path) -> dict:
+    """길이(초)와 소리 트랙 유무"""
+    r = _run(["ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json", str(video)])
+    info = json.loads(r.stdout or b"{}")
+    try:
+        duration = float(info.get("format", {}).get("duration") or 0)
+    except ValueError:
+        duration = 0.0
+    streams = [s.get("codec_type") for s in info.get("streams", [])]
+    if "video" not in streams:
+        raise ExtractError("video_error", "영상 트랙이 없습니다")
+    return {"duration": duration, "has_audio": "audio" in streams}
 
 
-class TextExtractionService:
-    """OCR + STT를 묶어서 실행하는 상위 서비스"""
+def extract_frames(video: Path, out_dir: Path, duration: float) -> list[tuple[float, Path]]:
+    """1초에 한 장 (길면 최대 MAX_FRAMES장이 되게 간격을 넓혀서)"""
+    fps = 1.0 if duration <= MAX_FRAMES else MAX_FRAMES / duration
+    _run(["ffmpeg", "-y", "-v", "error", "-i", str(video), "-vf", f"fps={fps:.4f},scale='min(1280,iw)':-2",
+          str(out_dir / "f_%04d.png")])
+    files = sorted(out_dir.glob("f_*.png"))
+    step = 1.0 / fps
+    return [(i * step, p) for i, p in enumerate(files)]
 
-    def __init__(self, ocr: OCRExtractor | None = None, stt: STTExtractor | None = None):
-        self.ocr = ocr or OCRExtractor()
-        self.stt = stt or STTExtractor()
 
-    def extract_all(
-        self, video_id: str, video_path: Path, run_stt: bool = True
-    ) -> ExtractedText:
-        ocr_segments = self.ocr.extract(video_path)
+def _signature(path: Path) -> Image.Image:
+    return Image.open(path).convert("L").resize((SIG, SIG), Image.BILINEAR)
 
-        stt_segments: list[TimedText] = []
-        if run_stt:
-            try:
-                stt_segments = self.stt.extract(video_path)
-            except ImportError as e:
-                # STT 엔진 미설치 시 OCR 결과만으로 우선 진행 (파이프라인 전체를 막지 않음)
-                print(f"[경고] STT 건너뜀: {e}")
 
-        return ExtractedText(
-            video_id=video_id,
-            ocr_segments=ocr_segments,
-            stt_segments=stt_segments,
-        )
+def scene_changed(a: Image.Image, b: Image.Image) -> bool:
+    diff = ImageChops.difference(a, b).resize((CELLS, CELLS), Image.BOX)  # 칸마다 평균
+    return max(diff.getdata()) > SCENE_DIFF
+
+
+def keep_changed(frames: list[tuple[float, Path]]) -> list[tuple[float, Path]]:
+    kept, last = [], None
+    for t, p in frames:
+        sig = _signature(p)
+        if last is None or scene_changed(sig, last):
+            kept.append((t, p))
+            last = sig
+    return kept
+
+
+def ocr_frame(path: Path, lang: str = "kor+eng") -> list[str]:
+    import pytesseract
+    # psm 11: 화면 여기저기 흩어진 글자를 찾아 읽는다. 광고 화면은 여백이 많고 글자가 띄엄띄엄 있어서
+    # 기본값(3)은 글자를 놓치고, psm 6은 자막 한 줄을 조각내는 경우가 있었다 (tests 영상으로 비교).
+    text = pytesseract.image_to_string(Image.open(path), lang=lang, config="--psm 11")
+    return [ln.strip() for ln in text.splitlines() if ln.strip()]
+
+
+def thumbnail(path: Path, size: int = 160) -> str:
+    im = Image.open(path).convert("RGB")
+    im.thumbnail((size, size))
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=70)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+# ---------------------------------------------------------------------------
+# 소리 -> 글자
+# ---------------------------------------------------------------------------
+
+class STTUnavailable(Exception):
+    pass
+
+
+_whisper = None
+
+
+def _whisper_model():
+    """모델은 프로세스마다 한 번만 읽는다. 크기는 WHISPER_MODEL 환경변수 (기본 base, 무료 서버 메모리 512MB 기준)."""
+    global _whisper
+    if _whisper is None:
+        try:
+            from faster_whisper import WhisperModel
+        except ImportError as e:
+            raise STTUnavailable("faster-whisper가 설치되어 있지 않습니다") from e
+        _whisper = WhisperModel(os.environ.get("WHISPER_MODEL", "base"), device="cpu", compute_type="int8")
+    return _whisper
+
+
+def transcribe(video: Path, tmp_dir: Path) -> list[dict]:
+    model = _whisper_model()
+    wav = tmp_dir / "audio.wav"
+    _run(["ffmpeg", "-y", "-v", "error", "-i", str(video), "-vn", "-ac", "1", "-ar", "16000", str(wav)])
+    segs, _ = model.transcribe(str(wav), language="ko", vad_filter=True)
+    return [{"text": s.text.strip(), "t": round(s.start, 1), "thumb": None, "src": "voice"} for s in segs if s.text.strip()]
+
+
+def stt_installed() -> bool:
+    try:
+        import faster_whisper  # noqa: F401
+        return True
+    except ImportError:
+        return False
 
 
 def check_dependencies() -> dict[str, bool]:
-    """
-    실행 환경에 필요한 외부 의존성이 설치되어 있는지 점검.
-    main.py 실행 전에 호출해서 뭐가 빠졌는지 바로 알 수 있게 함.
-    """
-    status = {}
-    status["ffmpeg"] = shutil.which("ffmpeg") is not None
-    status["tesseract"] = shutil.which("tesseract") is not None
+    status = {"ffmpeg": shutil.which("ffmpeg") is not None, "ffprobe": shutil.which("ffprobe") is not None,
+              "tesseract": shutil.which("tesseract") is not None}
     try:
-        import pytesseract as _  # noqa
+        import pytesseract
         status["pytesseract"] = True
-    except ImportError:
+        status["tesseract_kor"] = "kor" in pytesseract.get_languages() if status["tesseract"] else False
+    except Exception:
         status["pytesseract"] = False
+        status["tesseract_kor"] = False
+    status["faster_whisper"] = stt_installed()
     try:
-        import faster_whisper as _  # noqa
-        status["faster_whisper"] = True
+        import anthropic  # noqa: F401
+        status["anthropic"] = True
     except ImportError:
-        status["faster_whisper"] = False
+        status["anthropic"] = False
     return status

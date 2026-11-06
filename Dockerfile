@@ -1,9 +1,6 @@
-# 클라우드 배포용 이미지.
-# 서버 쪽에 ffmpeg + tesseract(한국어팩)를 직접 설치하므로,
-# 접속자나 배포 플랫폼이 따로 아무것도 설치할 필요 없음.
+# 서버 쪽에 ffmpeg + tesseract(한국어 데이터)를 직접 설치하므로 접속자는 아무것도 설치할 필요가 없다.
 FROM python:3.11-slim
 
-# ffmpeg(영상 처리) + tesseract-ocr(OCR) + 한국어 언어팩
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     tesseract-ocr \
@@ -11,12 +8,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
 COPY . .
 
-# Render 등은 컨테이너에 PORT 환경변수를 넘겨줌. app.py가 이를 읽어서 바인딩함.
-ENV FLASK_DEBUG=0
-CMD ["python3", "app.py"]
+# 음성 인식 모델 크기. Render 무료(메모리 512MB)는 base가 안전하다. 더 정확하게: small
+ENV WHISPER_MODEL=base
+# 음성 인식 모델을 이미지에 미리 받아 둔다 (첫 요청이 느려지지 않게)
+RUN python -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8')"
+
+# Render가 PORT를 넘겨준다. 영상 하나에 수십 초가 걸려서 timeout을 넉넉히 둔다.
+CMD gunicorn -w 1 --threads 4 --timeout 300 -b 0.0.0.0:${PORT:-5000} app:app

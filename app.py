@@ -1,128 +1,104 @@
 """
-웹 서버 (Flask)
+웹 서버 (Flask) — 애드스캔 화면과 분석 API를 함께 내보낸다.
 
-소비자가 브라우저에서 영상을 업로드하면:
-  업로드 받기 -> OCR/STT 추출 -> 금지어/오인유발어 판정 -> 결과를 화면에 보여줌
+  GET  /              애드스캔 화면 (web_demo.html, 서버 모드)
+  POST /api/analyze   영상(video) 또는 글자(text)를 받아 진행 상황과 결과를 한 줄씩 JSON으로 흘려보냄
+  GET  /api/health    살아 있는지 확인 (Render 헬스체크, 깨우기 핑)
 
-실행 (로컬):
-  python3 app.py
-  그 다음 브라우저에서 http://127.0.0.1:5000 접속
+로컬 실행: python app.py  ->  http://127.0.0.1:5000
+배포: Dockerfile + render.yaml (gunicorn으로 실행)
 
-배포: Dockerfile로 Render 등 클라우드에 올리면 PORT 환경변수를 읽어서
-0.0.0.0에 바인딩함 (README의 "클라우드 배포" 참고).
-
-ANTHROPIC_API_KEY 환경변수가 없으면 오인유발어 분석 단계에서 에러 메시지를 그대로 화면에 보여줌
-(서버가 죽지는 않음).
+ANTHROPIC_API_KEY 가 없으면 문맥 확인 단계만 "확인 필요"로 남기고 나머지는 그대로 동작한다.
 """
 
+import json
 import os
-import traceback
+import shutil
+import tempfile
 from pathlib import Path
 
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, Response, jsonify, request, stream_with_context
 
-from pipeline.input_handler import InputHandler
-from pipeline.extractors import TextExtractionService, OCRExtractor, STTExtractor, check_dependencies
-from pipeline.judge_engine import JudgeEngine, AIContextAnalyzer
-from data.wordlists_schema import WordLists
+from pipeline.extractors import check_dependencies
+from pipeline.judge_engine import JudgeEngine
+from pipeline.run import run_text, run_video
+
+ROOT = Path(__file__).resolve().parent
+PAGE = ROOT / "web_demo.html"
+ALLOWED_EXT = {".mp4", ".mov", ".m4v", ".mkv", ".webm"}
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-only-change-me")
+app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200MB
 
-UPLOAD_TMP_DIR = Path("storage/tmp_uploads")
-UPLOAD_TMP_DIR.mkdir(parents=True, exist_ok=True)
-
-ALLOWED_EXT = {".mp4", ".mov", ".mkv", ".webm"}
+ENGINE = JudgeEngine()
+_page_cache = None
 
 
-@app.route("/api/health", methods=["GET"])
-def health():
-    # Render 등 배포 플랫폼의 헬스체크용 + 무료 티어가 잠드는 것을 막는
-    # GitHub Actions "깨우기" 핑이 치는 엔드포인트
-    return {"status": "ok"}, 200
+def page_html() -> str:
+    """빌드된 화면에 '서버 모드' 표시를 넣어 내보낸다. 화면은 이 표시를 보고 Claude 대신 /api/analyze 를 부른다."""
+    global _page_cache
+    if _page_cache is None:
+        html = PAGE.read_text(encoding="utf-8")
+        mark = '<meta name="adscan-mode" content="server">'
+        _page_cache = "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\">" \
+                      "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">" \
+                      + mark + "</head><body>" + html + "</body></html>"
+    return _page_cache
 
 
-@app.route("/", methods=["GET"])
+@app.get("/")
 def index():
+    return Response(page_html(), mimetype="text/html")
+
+
+@app.get("/api/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.get("/api/status")
+def status():
     deps = check_dependencies()
-    return render_template("index.html", deps=deps, result=None)
+    deps["ai_key"] = ENGINE.ai.available()
+    return jsonify(deps)
 
 
-@app.route("/analyze", methods=["POST"])
+@app.post("/api/analyze")
 def analyze():
-    deps = check_dependencies()
-
+    text = (request.form.get("text") or "").strip()
+    narration = (request.form.get("narration") or "").strip()
+    use_stt = request.form.get("stt", "1") != "0"
     file = request.files.get("video")
-    if not file or file.filename == "":
-        flash("영상 파일을 선택해주세요.")
-        return redirect(url_for("index"))
 
-    ext = Path(file.filename).suffix.lower()
-    if ext not in ALLOWED_EXT:
-        flash(f"지원하지 않는 파일 형식입니다: {ext} (지원: {', '.join(ALLOWED_EXT)})")
-        return redirect(url_for("index"))
+    if not file and not text:
+        return jsonify({"type": "error", "code": "no_input", "message": "영상이나 글자를 보내 주세요"}), 400
 
-    run_stt = request.form.get("run_stt") == "on"
+    tmp_dir = None
+    if file:
+        ext = Path(file.filename or "").suffix.lower()
+        if ext not in ALLOWED_EXT:
+            return jsonify({"type": "error", "code": "bad_type", "message": f"지원하지 않는 형식이에요: {ext}"}), 400
+        # 응답을 흘려보내는 동안 요청 본문은 사라지므로 먼저 파일로 저장해 둔다
+        tmp_dir = Path(tempfile.mkdtemp(prefix="adscan_"))
+        video = tmp_dir / ("upload" + ext)
+        file.save(video)
 
-    # 1. 임시 저장
-    tmp_path = UPLOAD_TMP_DIR / file.filename
-    file.save(tmp_path)
-
-    try:
-        # 2. InputHandler로 정식 저장 위치 이동 + 검증
-        input_handler = InputHandler()
-        video = input_handler.handle_file_upload(str(tmp_path), file.filename)
-        if not input_handler.validate(video):
-            flash("유효하지 않은 영상 파일입니다.")
-            return redirect(url_for("index"))
-
-        # 3. OCR(+STT) 추출
-        extraction_service = TextExtractionService(
-            ocr=OCRExtractor(frame_interval_sec=1.0),
-            stt=STTExtractor(model_size="small", language="ko"),
-        )
-        extracted = extraction_service.extract_all(video.video_id, video.saved_path, run_stt=run_stt)
-        full_text = extracted.full_text()
-
-        # 4. 판정
-        wordlists = WordLists.load(
-            banned_path="data/banned_words.sample.json",
-            ambiguous_path="data/ambiguous_words.sample.json",
-        )
-        judge_engine = JudgeEngine(wordlists=wordlists, ai_analyzer=AIContextAnalyzer())
-
-        ai_error = None
+    def events():
         try:
-            result = judge_engine.judge(extracted)
-        except Exception as e:
-            # 오인유발어는 감지됐는데 AI 호출이 실패한 경우 (키 없음, 패키지 없음 등)
-            # 서버를 죽이지 않고 에러 내용을 화면에 보여준다
-            ai_error = str(e)
-            result = None
+            gen = run_video(video, ENGINE, narration, use_stt) if file else run_text(text, ENGINE)
+            for ev in gen:
+                yield json.dumps(ev, ensure_ascii=False) + "\n"
+        except Exception as e:  # 예상 못 한 오류도 화면에 알린다
+            app.logger.exception("analyze failed")
+            yield json.dumps({"type": "error", "code": "server_error", "message": str(e)[:200]}, ensure_ascii=False) + "\n"
+        finally:
+            if tmp_dir:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
 
-        return render_template(
-            "index.html",
-            deps=deps,
-            result=result,
-            full_text=full_text,
-            filename=file.filename,
-            ai_error=ai_error,
-        )
-
-    except Exception as e:
-        traceback.print_exc()
-        flash(f"처리 중 오류가 발생했습니다: {e}")
-        return redirect(url_for("index"))
-
-    finally:
-        if tmp_path.exists():
-            tmp_path.unlink()
+    return Response(stream_with_context(events()), mimetype="application/x-ndjson",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 if __name__ == "__main__":
-    # 로컬 테스트: host="127.0.0.1" (내 컴퓨터에서만 접속)
-    # 배포(Render 등) 환경: PORT 환경변수를 넘겨주고, 0.0.0.0으로 바인딩해야
-    # 플랫폼이 외부 요청을 이 서버로 전달할 수 있음
     port = int(os.environ.get("PORT", 5000))
-    debug = os.environ.get("FLASK_DEBUG", "1") == "1"
-    app.run(host="0.0.0.0", port=port, debug=debug)
+    app.run(host="0.0.0.0", port=port, debug=os.environ.get("FLASK_DEBUG", "1") == "1", threaded=True)

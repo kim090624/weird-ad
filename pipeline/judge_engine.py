@@ -1,270 +1,332 @@
 """
-판단엔진
+판단엔진 — 팀 금지어 사전(data/dictionary/geumjieo_list.csv) 규칙을 그대로 적용한다.
 
-흐름:
-1. 추출된 전체 텍스트에서 금지어(banned) 매칭 → 하나라도 있으면 즉시 "부당광고" 판정 (AI 호출 없이 종료)
-2. 금지어가 없으면 오인유발어(ambiguous) 매칭
-3. 오인유발어가 있으면, 그 단어가 포함된 문장만 뽑아서 AI API에 넘겨 문맥 분석 요청
-4. AI 분석 결과를 받아 최종 판정
+웹 버전(web/src/index.html 의 analyze)과 같은 규칙, 같은 결과를 낸다.
+두 버전이 같은지는 tests/engine_cases.json 으로 확인한다.
 
-단어 매칭은 형태소 분석(kiwipiepy) 기반으로 한다.
-문장과 사전 단어를 모두 형태소 단위로 쪼갠 뒤, 사전 단어의 형태소 시퀀스가
-문장의 형태소 시퀀스 안에 "연속으로" 등장하는지 확인한다.
-예: "업계 최고의 품질" → 형태소: [업계, 최고, 의, 품질] → "최고"가 독립된 형태소로 잡힘.
-반대로 "완전 치밀한 설계" → 형태소: [완전, 치밀, 하, ㄴ, 설계] → "완치"라는 형태소가
-존재하지 않으므로 매칭되지 않음 (단순 substring 매칭이었다면 "완(전)치(밀)"처럼
-우연히 걸릴 일은 없지만, 더 복잡한 예시에서는 이런 식으로 오탐을 줄여준다).
+규칙 (사전의 '사용단계' 열)
+  1단계 금지어                    -> 나오면 바로 금지 (ban)
+  1단계 조합(전문가+추천동사)      -> 한 문장에 둘 다 있으면 금지 조합 (ban)
+  1단계 조합(질병명+효능동사)      -> 한 문장에 둘 다 있으면 금지 조합 (ban)
+  전문가만 / 질병명만 / 전문가+'사용' -> 문맥 확인 (review). 이것만 AI에게 묻는다.
 
-kiwipiepy가 설치되어 있지 않으면 기존 substring 매칭으로 자동 폴백한다
-(개발 중 임시 환경에서도 파이프라인이 멈추지 않도록).
+AI(Claude API)는 문맥 확인 단계에서만 쓴다.
+  - 금지 표현이 하나라도 있으면 AI를 부르지 않는다.
+  - ANTHROPIC_API_KEY 가 없으면 문맥 확인 대상은 "확인 필요"로 남기고 끝낸다.
 """
 
-from dataclasses import dataclass, field
-from enum import Enum
+from __future__ import annotations
+
+import csv
 import json
 import os
 import re
+from dataclasses import dataclass, field
+from pathlib import Path
 
-from data.wordlists_schema import WordLists, WordEntry
-from pipeline.extractors import ExtractedText
+DEFAULT_DICT = Path(__file__).resolve().parent.parent / "data" / "dictionary" / "geumjieo_list.csv"
+
+STAGE_MAP = {
+    "1단계 금지어": "ban",
+    "1단계 조합(전문가+추천동사)": "combo_expert",
+    "1단계 조합(질병명+효능동사)": "combo_disease",
+}
+ROLE_MAP = {"전문가": "expert", "추천동사": "verb", "질병명": "disease", "효능동사": "effect"}
+
+# 사전 밖에서 더한 오탐 예외. '공신력'(신뢰)이 '공신'(공신단 계열 부분일치)으로 걸리지 않게 한다.
+EXCEPTIONS = {"공신": ["공신력"]}
+# '암'은 한 글자라 앞 글자가 한글이면 다른 낱말로 보고 뺀다. 뒤에는 조사·합성어만 허용.
+AM_NEXT = set("이을은의도에과와만세환까")
+
+REVIEW_REASON = {
+    "expert_only": "전문가가 언급됐어요. 추천·보증이 아니라 연구·개발 참여 사실만 밝힌 거라면 괜찮아요 (시행령 별표1 제5호라목).",
+    "expert_use": "전문가와 '사용'이 함께 나왔어요. '사용'은 다른 뜻으로도 많이 써서 문맥을 봐야 해요 (시행령 별표1 제5호라목).",
+    "disease_only": "질병 이름이 나왔어요. 질병을 예방·치료한다고 받아들일 수 있는지 봐야 해요 (시행령 별표1 제1호).",
+}
+
+_HANGUL = re.compile(r"[가-힣]")
+_LATIN = re.compile(r"[A-Za-z]")
+_ASCII_WORD = re.compile(r"^[A-Za-z0-9-]+$")
 
 
-class Verdict(str, Enum):
-    UNFAIR = "부당광고"               # 금지어 발견 → 확정
-    LIKELY_UNFAIR = "부당광고 추정"    # AI 분석 결과 오인 가능성 높음
-    NOT_UNFAIR = "문제 없음"
+def _is_hangul(c: str | None) -> bool:
+    return bool(c) and bool(_HANGUL.match(c))
+
+
+def _is_latin(c: str | None) -> bool:
+    return bool(c) and bool(_LATIN.match(c))
 
 
 @dataclass
-class MatchedWord:
-    entry: WordEntry
-    matched_sentence: str   # 해당 단어가 등장한 문장(또는 주변 문맥)
+class Entry:
+    word: str
+    cat: str
+    stage: str
+    role: str
+    basis: str
+    source: str
+    note: str
+    pattern: re.Pattern = field(repr=False, default=None)
+    ascii: bool = False
 
 
-@dataclass
-class JudgeResult:
-    verdict: Verdict
-    banned_hits: list[MatchedWord] = field(default_factory=list)
-    ambiguous_hits: list[MatchedWord] = field(default_factory=list)
-    ai_analysis: str | None = None   # AI API 응답 원문/요약 (호출했을 경우만)
+def load_dictionary(path: str | Path = DEFAULT_DICT) -> list[Entry]:
+    entries = []
+    with Path(path).open(encoding="utf-8", newline="") as f:
+        for row in csv.DictReader(f):
+            word = (row.get("표현") or "").strip()
+            stage = STAGE_MAP.get((row.get("사용단계") or "").strip())
+            # '확인 필요' 행(예: "보아탕 유사명칭")은 단어가 아니라 메모라서 검사에 쓰지 않는다
+            if not word or not stage:
+                continue
+            cat = (row.get("분류") or "").strip()
+            chars = list(re.sub(r"\s+", "", word))
+            e = Entry(
+                word=word,
+                cat=cat,
+                stage=stage,
+                role=ROLE_MAP.get(cat, ""),
+                basis=(row.get("근거조항") or "").strip(),
+                source=(row.get("출처") or "").strip(),
+                note=(row.get("비고") or "").strip(),
+            )
+            # 글자 사이 띄어쓰기는 무시한다 ("MSG 무첨가" == "MSG무첨가")
+            e.pattern = re.compile(r"\s*".join(re.escape(ch) for ch in chars), re.IGNORECASE)
+            e.ascii = bool(_ASCII_WORD.match(word))
+            entries.append(e)
+    return entries
 
-    def to_dict(self) -> dict:
-        return {
-            "verdict": self.verdict.value,
-            "banned_hits": [
-                {"word": h.entry.word, "category": h.entry.category, "sentence": h.matched_sentence}
-                for h in self.banned_hits
-            ],
-            "ambiguous_hits": [
-                {"word": h.entry.word, "category": h.entry.category, "sentence": h.matched_sentence}
-                for h in self.ambiguous_hits
-            ],
-            "ai_analysis": self.ai_analysis,
-        }
+
+def find_ranges(text: str, e: Entry) -> list[list[int]]:
+    out = []
+    for m in e.pattern.finditer(text):
+        s, en = m.start(), m.end()
+        if s == en:
+            continue
+        prev = text[s - 1] if s > 0 else None
+        nxt = text[en] if en < len(text) else None
+        if e.ascii and (_is_latin(prev) or _is_latin(nxt)):
+            continue
+        if e.word == "암" and (_is_hangul(prev) or (_is_hangul(nxt) and nxt not in AM_NEXT)):
+            continue
+        ex = EXCEPTIONS.get(e.word)
+        if ex and any(re.sub(r"\s+", "", text[s : s + len(x) + 4]).startswith(x) for x in ex):
+            continue
+        out.append([s, en])
+    return out
 
 
 def split_sentences(text: str) -> list[str]:
-    """아주 단순한 문장 분리기. 추후 한국어 문장 분리 라이브러리로 교체 가능."""
-    sentences = re.split(r"(?<=[.!?。])\s+", text)
-    return [s.strip() for s in sentences if s.strip()]
+    parts = re.split(r"\n+|(?<=[.!?。…])\s+", text)
+    return [p.strip() for p in parts if p and p.strip()]
 
 
-class MorphTokenizer:
+def analyze(segments: list[dict], entries: list[Entry]) -> dict:
     """
-    kiwipiepy 기반 형태소 토크나이저.
-    설치가 안 되어 있으면 None을 반환하도록 해서, 상위(KeywordMatcher)에서
-    substring 매칭으로 폴백할지 판단하게 한다.
+    segments: [{"text": str, "t": 초 또는 None, "thumb": dataURL 또는 None, "src": "screen"|"voice"|"text"}]
+    반환: {"sentences": [...], "hits": [...]}  (웹 버전 analyze 와 같은 모양)
     """
+    sentences = []
+    seen = set()
+    for seg in segments:
+        for s in split_sentences(seg.get("text", "")):
+            key = re.sub(r"\s+", "", s)
+            if key in seen:
+                continue
+            seen.add(key)
+            sentences.append({"text": s, "t": seg.get("t"), "thumb": seg.get("thumb"), "src": seg.get("src", "text")})
 
-    _kiwi = None
-    _available: bool | None = None
+    hits = []
+    for S in sentences:
+        found = []
+        for e in entries:
+            r = find_ranges(S["text"], e)
+            if r:
+                found.append((e, r))
 
-    @classmethod
-    def available(cls) -> bool:
-        if cls._available is None:
-            try:
-                from kiwipiepy import Kiwi
-                cls._kiwi = Kiwi()
-                cls._available = True
-            except ImportError:
-                cls._available = False
-        return cls._available
+        def pick(stage, role=None):
+            # 긴 낱말을 앞에 둔다: '한의사'가 '의사'보다 먼저 제목이 되게
+            xs = [(e, r) for e, r in found if e.stage == stage and (role is None or e.role == role)]
+            return sorted(xs, key=lambda x: -len(x[0].word))
 
-    @classmethod
-    def tokenize(cls, text: str) -> list[str]:
-        """텍스트를 형태소 surface form 리스트로 변환. 예: '최고의' -> ['최고', '의']"""
-        if not cls.available():
-            raise RuntimeError("kiwipiepy가 설치되어 있지 않습니다.")
-        tokens = cls._kiwi.tokenize(text)
-        return [t.form for t in tokens]
+        def ranges(xs):
+            return [rg for _, r in xs for rg in r]
 
+        def inside(r, others):
+            return all(any(o[0] <= a and b <= o[1] for o in others) for a, b in r)
 
-class KeywordMatcher:
-    def __init__(self, wordlists: WordLists):
-        self.wordlists = wordlists
-        self._use_morph = MorphTokenizer.available()
-        if not self._use_morph:
-            print(
-                "[경고] kiwipiepy 미설치 — 형태소 매칭 대신 단순 substring 매칭으로 동작합니다. "
-                "`pip install kiwipiepy` 로 설치하면 더 정확해집니다."
-            )
+        bans = pick("ban")
+        # 더 긴 금지어 안에 통째로 들어가는 짧은 금지어는 한 번만 보여 준다 ('공진단' 안의 '공진')
+        bans = [(e, r) for i, (e, r) in enumerate(bans)
+                if not any(j < i and len(f.word) > len(e.word) and inside(r, q) for j, (f, q) in enumerate(bans))]
+        for e, r in bans:
+            hits.append({"level": "ban", "tag": "금지 표현", "title": e.word, "S": S, "ranges": r,
+                         "basis": f"{e.cat} · {e.basis}"})
 
-    def find_matches(self, sentences: list[str], entries: list[WordEntry]) -> list[MatchedWord]:
-        if self._use_morph:
-            return self._find_matches_morph(sentences, entries)
-        return self._find_matches_substring(sentences, entries)
+        expert, verb = pick("combo_expert", "expert"), pick("combo_expert", "verb")
+        strong_verb = [(e, r) for e, r in verb if e.word != "사용"]
+        if expert and strong_verb:
+            hits.append({"level": "ban", "tag": "금지 조합", "title": f"{expert[0][0].word} + {strong_verb[0][0].word}",
+                         "S": S, "ranges": ranges(expert + strong_verb),
+                         "basis": f"전문가 추천·보증 · {expert[0][0].basis}"})
+        elif expert and verb:
+            hits.append({"level": "review", "reason": "expert_use", "tag": "문맥 확인",
+                         "title": f"{expert[0][0].word} + 사용", "S": S, "ranges": ranges(expert + verb),
+                         "basis": REVIEW_REASON["expert_use"]})
+        elif expert:
+            hits.append({"level": "review", "reason": "expert_only", "tag": "문맥 확인", "title": expert[0][0].word,
+                         "S": S, "ranges": ranges(expert), "basis": REVIEW_REASON["expert_only"]})
 
-    # --- 형태소 기반 매칭 ---
-    def _find_matches_morph(self, sentences: list[str], entries: list[WordEntry]) -> list[MatchedWord]:
-        hits = []
-        # 사전 단어들도 미리 형태소로 쪼개둔다 (문장마다 반복 계산하지 않도록 캐싱)
-        entry_tokens = [(entry, MorphTokenizer.tokenize(entry.word)) for entry in entries]
+        disease, effect = pick("combo_disease", "disease"), pick("combo_disease", "effect")
+        if disease and effect:
+            hits.append({"level": "ban", "tag": "금지 조합", "title": f"{disease[0][0].word} + {effect[0][0].word}",
+                         "S": S, "ranges": ranges(disease + effect),
+                         "basis": f"질병 예방·치료 표방 · {disease[0][0].basis}"})
+        elif disease:
+            hits.append({"level": "review", "reason": "disease_only", "tag": "문맥 확인", "title": disease[0][0].word,
+                         "S": S, "ranges": ranges(disease), "basis": REVIEW_REASON["disease_only"]})
 
-        for sentence in sentences:
-            sentence_tokens = MorphTokenizer.tokenize(sentence)
-            for entry, word_tokens in entry_tokens:
-                if self._contains_subsequence(sentence_tokens, word_tokens):
-                    hits.append(MatchedWord(entry=entry, matched_sentence=sentence))
-        return hits
-
-    @staticmethod
-    def _contains_subsequence(haystack: list[str], needle: list[str]) -> bool:
-        """needle(사전 단어의 형태소 시퀀스)이 haystack(문장의 형태소 시퀀스) 안에
-        연속으로 등장하는지 확인."""
-        if not needle:
-            return False
-        n = len(needle)
-        for i in range(len(haystack) - n + 1):
-            if haystack[i:i + n] == needle:
-                return True
-        return False
-
-    # --- 폴백: 단순 substring 매칭 ---
-    def _find_matches_substring(self, sentences: list[str], entries: list[WordEntry]) -> list[MatchedWord]:
-        hits = []
-        for sentence in sentences:
-            for entry in entries:
-                if entry.word in sentence:
-                    hits.append(MatchedWord(entry=entry, matched_sentence=sentence))
-        return hits
+    return {"sentences": sentences, "hits": hits}
 
 
-AI_SYSTEM_PROMPT = """\
-너는 표시·광고의 공정화에 관한 법률(표시광고법) 관점에서 광고 문구를 심사하는 보조 역할이다.
-아래 문장들은 광고 영상에서 추출된 것으로, 각 문장에는 "오인 유발 가능 표현"으로 미리 분류된 단어가
-포함되어 있다. 그 단어 자체는 금지어가 아니지만, 문맥에 따라 소비자가 상품의 효능·성능·品質을
-사실과 다르게 오인할 수 있다.
+# ---------------------------------------------------------------------------
+# AI 문맥 확인 (문맥 확인 대상이 있고 금지 표현이 없을 때만)
+# ---------------------------------------------------------------------------
 
-각 문장에 대해 다음을 판단하라:
-- 해당 단어가 과장되거나 근거 없는 주장과 결합되어 소비자를 오인시킬 가능성이 있는가?
-- 단순 홍보성 수사(예: 주관적 감상)에 그쳐 문제가 없는가?
+class AIUnavailable(Exception):
+    """API 키나 패키지가 없어서 AI를 부를 수 없을 때. code 로 이유를 구분한다."""
 
-반드시 아래 JSON 형식으로만 답하라 (다른 설명 금지):
-{
-  "misleading": true/false,
-  "reasoning": "전체 판단 근거 2~3문장",
-  "per_sentence": [
-    {"sentence": "...", "misleading": true/false, "reason": "..."}
-  ]
-}
-"""
+    def __init__(self, code: str, message: str = ""):
+        super().__init__(message or code)
+        self.code = code
+
+
+def review_prompt(review_hits: list[dict], sentences: list[dict]) -> str:
+    context = "\n".join(s["text"] for s in sentences)[:3000]
+    items = "\n".join(f"{i + 1}. {h['S']['text']}\n   걸린 이유: {h['basis']}" for i, h in enumerate(review_hits))
+    return (
+        "너는 식품 등의 표시·광고에 관한 법률 기준으로 광고 문구를 검토하는 보조자다. 법률 판단을 단정하지 말고 '~로 보여요' 말투로 쓴다.\n"
+        "기준:\n"
+        "- 질병의 예방·치료에 효능이 있는 것으로 인식할 우려가 있는 표시·광고는 금지된다 (시행령 별표1 제1호).\n"
+        "- 의사·치과의사·한의사·수의사·약사·한약사·대학교수 등이 제품을 지정·공인·추천·지도·사용한다는 광고는 금지된다. "
+        "연구·개발에 참여했다는 사실만 밝히는 것은 허용된다 (시행령 별표1 제5호라목).\n\n"
+        f"광고에서 읽은 전체 글자(앞뒤 문맥):\n\"\"\"\n{context}\n\"\"\"\n\n"
+        f"검토할 문장:\n{items}\n\n"
+        "각 문장이 소비자를 오인하게 할 소지가 있는지 판단하라. JSON 객체 하나로만 답하라:\n"
+        '{"misleading": true 또는 false, "summary": "전체 판단 2문장", "items": [{"n": 1, "misleading": true 또는 false, "reason": "한 문장"}]}'
+    )
+
+
+def _parse_json(text: str):
+    text = text.strip()
+    fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
+    if fence:
+        text = fence.group(1).strip()
+    start = min([i for i in (text.find("{"), text.find("[")) if i >= 0], default=-1)
+    if start > 0:
+        text = text[start:]
+    return json.loads(text)
 
 
 class AIContextAnalyzer:
-    """
-    오인유발어가 포함된 문장을 Claude API에 넘겨 실제로 소비자를 오인시킬
-    문맥인지 판단 요청하는 래퍼.
+    """Claude API로 문맥 확인. 환경변수 ANTHROPIC_API_KEY, (선택) ANTHROPIC_MODEL."""
 
-    환경변수 ANTHROPIC_API_KEY 필요.
-    """
-
-    def __init__(self, api_key: str | None = None, model: str = "claude-sonnet-4-5"):
+    def __init__(self, api_key: str | None = None, model: str | None = None):
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-        self.model = model
-        self._client = None
+        # 문장 몇 개를 보는 일이라 가벼운 모델로 충분하다. 바꾸려면 ANTHROPIC_MODEL 환경변수.
+        self.model = model or os.environ.get("ANTHROPIC_MODEL", "claude-haiku-5-5")
 
-    def _get_client(self):
-        if self._client is None:
-            try:
-                import anthropic
-            except ImportError as e:
-                raise ImportError(
-                    "anthropic 패키지가 설치되어 있지 않습니다. `pip install anthropic` 로 설치하세요."
-                ) from e
-            if not self.api_key:
-                raise ValueError(
-                    "ANTHROPIC_API_KEY가 설정되어 있지 않습니다. "
-                    "환경변수로 설정하거나 AIContextAnalyzer(api_key=...)로 전달하세요."
-                )
-            self._client = anthropic.Anthropic(api_key=self.api_key)
-        return self._client
+    def available(self) -> bool:
+        return bool(self.api_key)
 
-    def analyze(self, matched_sentences: list[MatchedWord]) -> tuple[bool, str]:
-        """
-        반환: (오인 가능성 있음 여부, 분석 근거 텍스트)
-        """
-        client = self._get_client()
-
-        # 중복 문장 제거
-        seen = set()
-        unique_sentences = []
-        for m in matched_sentences:
-            if m.matched_sentence not in seen:
-                seen.add(m.matched_sentence)
-                unique_sentences.append(m.matched_sentence)
-
-        user_content = "다음 문장들을 심사해줘:\n" + "\n".join(
-            f"- {s}" for s in unique_sentences
-        )
-
-        response = client.messages.create(
+    def review(self, review_hits: list[dict], sentences: list[dict]) -> dict:
+        if not self.api_key:
+            raise AIUnavailable("no_api_key")
+        try:
+            import anthropic
+        except ImportError as e:
+            raise AIUnavailable("no_sdk", "anthropic 패키지가 없습니다 (pip install anthropic)") from e
+        client = anthropic.Anthropic(api_key=self.api_key)
+        resp = client.messages.create(
             model=self.model,
             max_tokens=1024,
-            system=AI_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_content}],
+            messages=[{"role": "user", "content": review_prompt(review_hits, sentences)}],
         )
-
-        raw_text = "".join(
-            block.text for block in response.content if getattr(block, "type", None) == "text"
-        )
-
+        raw = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
         try:
-            parsed = json.loads(raw_text)
-            is_misleading = bool(parsed.get("misleading", False))
-            reasoning = parsed.get("reasoning", raw_text)
-        except (json.JSONDecodeError, AttributeError):
-            # AI가 JSON 형식을 안 지켰을 경우를 대비한 fallback
-            is_misleading = "true" in raw_text.lower() and "misleading" in raw_text.lower()
-            reasoning = raw_text
+            data = _parse_json(raw)
+        except (ValueError, json.JSONDecodeError) as e:
+            raise AIUnavailable("invalid_json", raw[:300]) from e
+        if not isinstance(data, dict):
+            raise AIUnavailable("invalid_json", raw[:300])
+        return data
 
-        return is_misleading, reasoning
 
+# ---------------------------------------------------------------------------
+# 전체 판정
+# ---------------------------------------------------------------------------
 
 class JudgeEngine:
-    def __init__(self, wordlists: WordLists, ai_analyzer: AIContextAnalyzer | None = None):
-        self.matcher = KeywordMatcher(wordlists)
-        self.ai_analyzer = ai_analyzer or AIContextAnalyzer()
+    def __init__(self, dictionary_path: str | Path = DEFAULT_DICT, ai: AIContextAnalyzer | None = None):
+        self.entries = load_dictionary(dictionary_path)
+        self.ai = ai if ai is not None else AIContextAnalyzer()
 
-    def judge(self, extracted: ExtractedText) -> JudgeResult:
-        full_text = extracted.full_text()
-        sentences = split_sentences(full_text)
+    def run(self, segments: list[dict]):
+        """
+        단계마다 진행 이벤트를 내보내고 마지막에 결과를 내보내는 생성기.
+          {"type": "step", "step": "dict"|"ai", "state": "doing"|"done"|"skip"|"fail", "sub": 설명}
+          {"type": "result", "result": {"sentences", "hits", "ai", "ai_error", "verdict"}}
+        """
+        def step(k, state, sub):
+            return {"type": "step", "step": k, "state": state, "sub": sub}
 
-        # 1. 금지어 검사 — 발견 즉시 확정 판정, AI 호출 없이 종료
-        banned_hits = self.matcher.find_matches(sentences, self.matcher.wordlists.banned)
-        if banned_hits:
-            return JudgeResult(verdict=Verdict.UNFAIR, banned_hits=banned_hits)
+        yield step("dict", "doing", f"{len(self.entries)}개 표현과 대조하는 중")
+        result = analyze(segments, self.entries)
+        ban = [h for h in result["hits"] if h["level"] == "ban"]
+        review = [h for h in result["hits"] if h["level"] == "review"]
+        yield step("dict", "done", f"금지 {len(ban)}건, 문맥 확인 {len(review)}건")
 
-        # 2. 오인유발어 검사
-        ambiguous_hits = self.matcher.find_matches(sentences, self.matcher.wordlists.ambiguous)
-        if not ambiguous_hits:
-            return JudgeResult(verdict=Verdict.NOT_UNFAIR)
+        ai, ai_error = None, None
+        if ban:
+            yield step("ai", "skip", "금지 표현이 있어서 바로 판정했어요")
+        elif not review:
+            yield step("ai", "skip", "확인할 표현이 없어요")
+        elif not self.ai.available():
+            ai_error = {"code": "no_api_key"}
+            yield step("ai", "skip", "AI 키가 없어서 확인 필요로 남겨요")
+        else:
+            yield step("ai", "doing", f"Claude가 문장 {len(review)}개를 보고 있어요")
+            try:
+                ai = self.ai.review(review, result["sentences"])
+                yield step("ai", "done", "확인했어요")
+            except AIUnavailable as e:
+                ai_error = {"code": e.code}
+                yield step("ai", "fail", "AI 확인을 하지 못했어요")
+            except Exception as e:  # 네트워크, 요금, 권한 오류 등
+                ai_error = {"code": "ai_failed", "message": str(e)[:200]}
+                yield step("ai", "fail", "AI 확인을 하지 못했어요")
 
-        # 3. 오인유발어가 있으면 AI 문맥 분석 호출
-        is_misleading, analysis_text = self.ai_analyzer.analyze(ambiguous_hits)
+        result["ai"] = ai
+        result["ai_error"] = ai_error
+        result["verdict"] = verdict(ban, review, ai)
+        yield {"type": "result", "result": result}
 
-        verdict = Verdict.LIKELY_UNFAIR if is_misleading else Verdict.NOT_UNFAIR
-        return JudgeResult(
-            verdict=verdict,
-            ambiguous_hits=ambiguous_hits,
-            ai_analysis=analysis_text,
-        )
+    def judge(self, segments: list[dict]) -> dict:
+        """진행 이벤트 없이 결과만"""
+        for ev in self.run(segments):
+            if ev["type"] == "result":
+                return ev["result"]
+        raise RuntimeError("판단 결과가 없습니다")
+
+
+def verdict(ban: list, review: list, ai: dict | None) -> str:
+    """ban(금지) / warn(오해 소지 또는 확인 필요) / ok(문제 없어 보임)"""
+    if ban:
+        return "ban"
+    if review and ai is None:
+        return "warn"
+    if review:
+        items = {int(it.get("n", 0)): it for it in (ai.get("items") or []) if isinstance(it, dict)}
+        flagged = [i for i in range(len(review)) if (items[i + 1].get("misleading") if (i + 1) in items else ai.get("misleading"))]
+        return "warn" if flagged else "ok"
+    return "ok"
