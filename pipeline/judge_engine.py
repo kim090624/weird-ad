@@ -34,6 +34,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from pipeline import context_rules
+
 DICT_DIR = Path(__file__).resolve().parent.parent / "data" / "dictionary"
 DEFAULT_DICT = [DICT_DIR / "geumjieo_list.csv", DICT_DIR / "functional_claims.csv"]
 CATEGORIES = ("health", "general", "unknown")
@@ -346,20 +348,23 @@ class JudgeEngine:
             yield step("ai", "skip", "금지 표현이 있어서 바로 판정했어요")
         elif not review:
             yield step("ai", "skip", "확인할 표현이 없어요")
-        elif not self.ai.available():
-            ai_error = {"code": "no_api_key"}
-            yield step("ai", "skip", "AI 키가 없어서 확인 필요로 남겨요")
         else:
-            yield step("ai", "doing", f"Claude가 문장 {len(review)}개를 보고 있어요")
-            try:
-                ai = self.ai.review(review, result["sentences"], category)
-                yield step("ai", "done", "확인했어요")
-            except AIUnavailable as e:
-                ai_error = {"code": e.code}
-                yield step("ai", "fail", "AI 확인을 하지 못했어요")
-            except Exception as e:  # 네트워크, 요금, 권한 오류 등
-                ai_error = {"code": "ai_failed", "message": str(e)[:200]}
-                yield step("ai", "fail", "AI 확인을 하지 못했어요")
+            if self.ai.available():
+                yield step("ai", "doing", f"Claude가 문장 {len(review)}개를 보고 있어요")
+                try:
+                    ai = self.ai.review(review, result["sentences"], category)
+                    ai["source"] = "ai"
+                    yield step("ai", "done", "확인했어요")
+                except AIUnavailable as e:
+                    ai_error = {"code": e.code}
+                except Exception as e:  # 네트워크, 요금, 권한 오류 등
+                    ai_error = {"code": "ai_failed", "message": str(e)[:200]}
+            else:
+                ai_error = {"code": "no_api_key"}
+            if ai is None:
+                # AI를 못 쓰면 규칙으로 문맥을 본다 (pipeline/context_rules.py)
+                ai = context_rules.review(review)
+                yield step("ai", "done", "AI 대신 규칙으로 문맥을 확인했어요")
 
         result["ai"] = ai
         result["ai_error"] = ai_error
@@ -383,6 +388,9 @@ def verdict(ban: list, review: list, ai: dict | None) -> str:
         return "warn"
     if review:
         items = {int(it.get("n", 0)): it for it in (ai.get("items") or []) if isinstance(it, dict)}
-        flagged = [i for i in range(len(review)) if (items[i + 1].get("misleading") if (i + 1) in items else ai.get("misleading"))]
-        return "warn" if flagged else "ok"
+        for i in range(len(review)):
+            m = items[i + 1].get("misleading") if (i + 1) in items else ai.get("misleading")
+            if m is None or m is True:  # 오해 소지 있음, 또는 규칙으로 판단 못 함 -> 확인 필요
+                return "warn"
+        return "ok"
     return "ok"

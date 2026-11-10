@@ -414,8 +414,9 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
         <div id="aiBlock" hidden>
           <div class="band"></div>
           <div class="sec">
-            <h2>AI가 본 문맥</h2>
+            <h2 id="aiTitle">AI가 본 문맥</h2>
             <p class="ai-sum" id="aiSummary"></p>
+            <p class="hint" id="aiNote" hidden>AI 키가 없어서 규칙으로 판단했어요. 미묘한 문장은 AI보다 덜 정확할 수 있어요.</p>
           </div>
         </div>
         <div class="band"></div>
@@ -1132,10 +1133,15 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
     const review = result.hits.filter((h) => h.level === "review");
     const aiItems = {};
     if (ai && Array.isArray(ai.items)) ai.items.forEach((it) => { aiItems[Number(it.n)] = it; });
-    const reviewFlagged = review.filter((h, i) => {
-      const it = aiItems[i + 1];
-      return it ? !!it.misleading : !!(ai && ai.misleading);
-    });
+    // 문장별 판정: true 오해 소지 / false 문제없음 / null 판단 어려움(규칙으로 못 정함)
+    const reviewState = (h) => {
+      const it = aiItems[review.indexOf(h) + 1];
+      if (it) return it.misleading === true ? true : (it.misleading === false ? false : null);
+      return ai ? !!ai.misleading : null;
+    };
+    const byRules = !!(ai && ai.source === "rules");
+    const reviewFlagged = review.filter((h) => reviewState(h) === true);
+    const reviewUnsure = review.filter((h) => reviewState(h) === null);
 
     let level, title, lead;
     if (ban.length) {
@@ -1143,7 +1149,10 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
       lead = "식품 표시·광고법이 쓰지 못하게 정한 표현이 나왔어요. 부당광고에 해당할 가능성이 높아요.";
     } else if (review.length && ai && reviewFlagged.length) {
       level = "warn"; title = "소비자가 오해할 수 있는\n표현이 있어요";
-      lead = "금지어는 없지만, AI가 문맥을 보니 부당광고로 의심되는 표현이 있어요.";
+      lead = "금지어는 없지만, " + (byRules ? "규칙으로" : "AI가") + " 문맥을 보니 부당광고로 의심되는 표현이 있어요.";
+    } else if (review.length && ai && reviewUnsure.length) {
+      level = "warn"; title = "확인이 필요한 표현이 있어요";
+      lead = "금지어는 없지만 규칙으로 판단하기 어려운 표현이 있어요. 표시한 문장을 직접 확인해 주세요.";
     } else if (review.length && !ai) {
       level = "warn"; title = "확인이 필요한 표현이 있어요";
       lead = "금지어는 없지만 문맥을 봐야 하는 표현이 있어요. AI 확인을 하지 못했어요.";
@@ -1188,9 +1197,9 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
       head.appendChild(el("b", null, h.title));
       if (h.S.src === "voice") head.appendChild(el("span", "tag plain", "나레이션"));
       if (h.level === "review" && ai) {
-        const it = aiItems[review.indexOf(h) + 1];
-        const flagged = it ? !!it.misleading : !!ai.misleading;
-        head.appendChild(el("span", "tag " + (flagged ? "ban" : "ok"), flagged ? "오해 소지 있음" : "문제 없어 보임"));
+        const st = reviewState(h);
+        head.appendChild(st === true ? el("span", "tag ban", "오해 소지 있음")
+          : st === false ? el("span", "tag ok", "문제 없어 보임") : el("span", "tag plain", "판단 어려움"));
       }
       body.appendChild(head);
       body.appendChild(highlighted(h.S.text, h.ranges));
@@ -1205,6 +1214,8 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
     });
 
     const aiBlock = $("#aiBlock");
+    $("#aiTitle").textContent = byRules ? "규칙으로 본 문맥" : "AI가 본 문맥";
+    $("#aiNote").hidden = !byRules;
     if (ai && ai.summary) {
       aiBlock.hidden = false;
       $("#aiSummary").textContent = String(ai.summary);
