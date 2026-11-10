@@ -68,6 +68,8 @@ def analyze():
     text = (request.form.get("text") or "").strip()
     narration = (request.form.get("narration") or "").strip()
     use_stt = request.form.get("stt", "1") != "0"
+    # 사용자가 처음에 고른 제품 종류: health / general / unknown (모르면 일반식품 기준)
+    category = request.form.get("category", "unknown")
     file = request.files.get("video")
 
     if not file and not text:
@@ -85,7 +87,7 @@ def analyze():
 
     def events():
         try:
-            gen = run_video(video, ENGINE, narration, use_stt) if file else run_text(text, ENGINE)
+            gen = run_video(video, ENGINE, narration, use_stt, category) if file else run_text(text, ENGINE, category)
             for ev in gen:
                 yield json.dumps(ev, ensure_ascii=False) + "\n"
         except Exception as e:  # 예상 못 한 오류도 화면에 알린다

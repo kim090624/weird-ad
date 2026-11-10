@@ -19,7 +19,9 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "web" / "src" / "index.html"
 OUT = ROOT / "web_demo.html"
 FONTS = ROOT / "web" / "fonts"
-DICT_CSV = ROOT / "data" / "dictionary" / "geumjieo_list.csv"
+DICT_CSVS = [ROOT / "data" / "dictionary" / "geumjieo_list.csv",
+             ROOT / "data" / "dictionary" / "functional_claims.csv"]  # 공통 사전 + 제품 종류별 기능성 (초안)
+MARK = ROOT / "web" / "assets" / "health_food_mark.jpg"  # 건강기능식품 표시 예시 사진
 
 FONT_FILES = [
     ("Pretendard-Medium.subset.woff2", 500),
@@ -32,6 +34,7 @@ STAGE_MAP = {
     "1단계 금지어": "ban",
     "1단계 조합(전문가+추천동사)": "combo_expert",
     "1단계 조합(질병명+효능동사)": "combo_disease",
+    "2단계 기능성": "func",
 }
 
 # 조합 규칙 안에서 각 단어의 역할
@@ -40,6 +43,9 @@ ROLE_MAP = {
     "추천동사": "verb",
     "질병명": "disease",
     "효능동사": "effect",
+    "기능성 대상": "ftarget",
+    "기능성 동사": "fverb",
+    "과장 표현": "fexag",
 }
 
 
@@ -57,7 +63,14 @@ def font_faces() -> str:
 
 def dictionary() -> list[dict]:
     entries = []
-    with DICT_CSV.open(encoding="utf-8", newline="") as f:
+    for path in DICT_CSVS:
+        entries.extend(_dictionary_one(path))
+    return entries
+
+
+def _dictionary_one(path: Path) -> list[dict]:
+    entries = []
+    with path.open(encoding="utf-8", newline="") as f:
         for row in csv.DictReader(f):
             word = (row.get("표현") or "").strip()
             stage = STAGE_MAP.get((row.get("사용단계") or "").strip())
@@ -81,12 +94,13 @@ def dictionary() -> list[dict]:
 
 def main() -> None:
     html = SRC.read_text(encoding="utf-8")
-    for marker in ("/*@@FONTS@@*/", "/*@@DICT@@*/"):
+    for marker in ("/*@@FONTS@@*/", "/*@@DICT@@*/", "@@MARK_SRC@@"):
         if html.count(marker) != 1:
             raise SystemExit(f"{SRC} 에 {marker} 가 정확히 한 번 있어야 합니다")
     entries = dictionary()
     html = html.replace("/*@@FONTS@@*/", font_faces())
     html = html.replace("/*@@DICT@@*/", json.dumps(entries, ensure_ascii=False))
+    html = html.replace("@@MARK_SRC@@", "data:image/jpeg;base64," + base64.b64encode(MARK.read_bytes()).decode("ascii"))
     OUT.write_text(html, encoding="utf-8")
     print(f"{OUT.name}: {OUT.stat().st_size / 1024:.0f} KB, 사전 {len(entries)}개")
 

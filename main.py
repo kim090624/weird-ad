@@ -34,6 +34,8 @@ def main():
     ap.add_argument("--text")
     ap.add_argument("--narration", default="")
     ap.add_argument("--no-stt", action="store_true")
+    ap.add_argument("--category", choices=["health", "general", "unknown"], default="unknown",
+                    help="제품 종류: health=건강기능식품, general=일반식품, unknown=모름(일반식품 기준)")
     ap.add_argument("--json", action="store_true", help="결과를 JSON으로 출력")
     a = ap.parse_args()
 
@@ -45,7 +47,8 @@ def main():
         sys.exit(1)
 
     engine = JudgeEngine()
-    events = run_video(Path(a.video), engine, a.narration, not a.no_stt) if a.video else run_text(a.text, engine)
+    events = (run_video(Path(a.video), engine, a.narration, not a.no_stt, a.category) if a.video
+              else run_text(a.text, engine, a.category))
     result = None
     for ev in events:
         if ev["type"] == "step":
@@ -67,6 +70,8 @@ def main():
     for h in result["hits"]:
         t = f"{int(h['S']['t'] // 60)}:{int(h['S']['t'] % 60):02d} " if h["S"].get("t") is not None else ""
         print(f"  - [{h['tag']}] {h['title']}  {t}\"{h['S']['text']}\"")
+        if h.get("ifHealth"):
+            print("      건강기능식품이라면 이 표현은 허용될 수 있어요")
     if result.get("ai"):
         print("AI:", result["ai"].get("summary", ""))
     elif result.get("ai_error"):

@@ -26,7 +26,7 @@ def _fmt(t: float) -> str:
     return f"{t // 60}:{t % 60:02d}"
 
 
-def run_video(video: Path, engine: JudgeEngine, narration: str = "", use_stt: bool = True):
+def run_video(video: Path, engine: JudgeEngine, narration: str = "", use_stt: bool = True, category: str = "unknown"):
     try:
         yield _step("frames", "doing", "영상을 여는 중")
         info = X.probe(video)
@@ -65,11 +65,11 @@ def run_video(video: Path, engine: JudgeEngine, narration: str = "", use_stt: bo
             if line.strip():
                 segments.append({"text": line.strip(), "t": None, "thumb": None, "src": "voice"})
 
-        yield from engine.run(segments)
+        yield from engine.run(segments, category)
     except X.ExtractError as e:
         yield {"type": "error", "code": e.code, "message": str(e)}
 
 
-def run_text(text: str, engine: JudgeEngine):
+def run_text(text: str, engine: JudgeEngine, category: str = "unknown"):
     segments = [{"text": t, "t": None, "thumb": None, "src": "text"} for t in text.splitlines() if t.strip()]
-    yield from engine.run(segments)
+    yield from engine.run(segments, category)

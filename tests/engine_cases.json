@@ -1,96 +1,225 @@
 {
- "note": "판단엔진 시험 문장. 파이썬(pipeline/judge_engine.py)과 웹(web/src/index.html)이 같은 결과를 내야 한다.",
+ "note": "판단엔진 시험 문장. category: health=건강기능식품, general=일반식품, unknown=모름. 파이썬(pipeline/judge_engine.py)과 웹(web/src/index.html)이 같은 결과를 내야 한다.",
  "cases": [
   {
    "text": "의사가 추천하는 건강차예요.",
+   "category": "general",
    "expect": [
     "ban:의사 + 추천"
    ]
   },
   {
    "text": "마시기만 해도 당뇨가 개선돼요.",
+   "category": "general",
    "expect": [
     "ban:당뇨 + 개선"
    ]
   },
   {
    "text": "당뇨 걱정되는 분들 주목!",
+   "category": "general",
    "expect": [
     "review:당뇨"
    ]
   },
   {
    "text": "약사가 직접 개발한 여주 건강즙을 만나 보세요.",
+   "category": "general",
    "expect": [
     "review:약사"
    ]
   },
   {
    "text": "한의사가 직접 사용하는 원료예요.",
+   "category": "general",
    "expect": [
     "review:한의사 + 사용"
    ]
   },
   {
    "text": "공진단 못지않은 건강환",
+   "category": "general",
    "expect": [
     "ban:공진단"
    ]
   },
   {
    "text": "공신력 있는 기관에서 검사했어요.",
+   "category": "general",
    "expect": []
   },
   {
    "text": "암세포 걱정 없이 예방하세요.",
+   "category": "general",
    "expect": [
     "ban:암 + 예방"
    ]
   },
   {
    "text": "암기력이 쑥쑥 좋아져요.",
+   "category": "general",
    "expect": []
   },
   {
    "text": "CBD 오일을 넣었어요.",
+   "category": "general",
    "expect": [
     "ban:CBD"
    ]
   },
   {
    "text": "CBDX 라인 신제품",
+   "category": "general",
    "expect": []
   },
   {
    "text": "무 MSG 라면이에요.",
+   "category": "general",
    "expect": [
     "ban:무MSG"
    ]
   },
   {
    "text": "고혈압 예방에 좋은 차",
+   "category": "general",
    "expect": [
     "ban:고혈압 + 예방"
    ]
   },
   {
    "text": "위고비 대신 드세요.",
+   "category": "general",
    "expect": [
     "ban:위고비"
    ]
   },
   {
    "text": "GLP-1 효과를 느껴 보세요.",
+   "category": "general",
    "expect": [
     "ban:GLP-1"
    ]
   },
   {
    "text": "매일 아침 한 잔으로 상쾌한 하루를 시작하세요.",
+   "category": "general",
    "expect": []
   },
   {
    "text": "국산 보리 100%로 만들었어요.",
+   "category": "general",
+   "expect": []
+  },
+  {
+   "text": "관절연골, 근육, 뼈 동시케어",
+   "category": "general",
+   "expect": [
+    "ban:관절 + 케어"
+   ]
+  },
+  {
+   "text": "관절연골, 근육, 뼈 동시케어",
+   "category": "health",
+   "expect": []
+  },
+  {
+   "text": "관절연골, 근육, 뼈 동시케어",
+   "category": "unknown",
+   "expect": [
+    "ban:관절 + 케어 (ifHealth)"
+   ]
+  },
+  {
+   "text": "체지방 감소에 도움을 줄 수 있음",
+   "category": "general",
+   "expect": [
+    "ban:체지방 + 도움"
+   ]
+  },
+  {
+   "text": "체지방 감소에 도움을 줄 수 있음",
+   "category": "health",
+   "expect": []
+  },
+  {
+   "text": "체지방 감소에 도움을 줄 수 있음",
+   "category": "unknown",
+   "expect": [
+    "ban:체지방 + 도움 (ifHealth)"
+   ]
+  },
+  {
+   "text": "한 달 만에 10kg 감량 보장",
+   "category": "general",
+   "expect": [
+    "ban:감량 + 보장"
+   ]
+  },
+  {
+   "text": "한 달 만에 10kg 감량 보장",
+   "category": "health",
+   "expect": [
+    "ban:감량 + 보장"
+   ]
+  },
+  {
+   "text": "한 달 만에 10kg 감량 보장",
+   "category": "unknown",
+   "expect": [
+    "ban:감량 + 보장"
+   ]
+  },
+  {
+   "text": "혈당 걱정되시죠?",
+   "category": "general",
+   "expect": [
+    "review:혈당"
+   ]
+  },
+  {
+   "text": "혈당 걱정되시죠?",
+   "category": "health",
+   "expect": []
+  },
+  {
+   "text": "혈당 걱정되시죠?",
+   "category": "unknown",
+   "expect": [
+    "review:혈당 (ifHealth)"
+   ]
+  },
+  {
+   "text": "면역력 증진에 좋은 홍삼",
+   "category": "general",
+   "expect": [
+    "ban:면역 + 증진"
+   ]
+  },
+  {
+   "text": "면역력 증진에 좋은 홍삼",
+   "category": "health",
+   "expect": []
+  },
+  {
+   "text": "면역력 증진에 좋은 홍삼",
+   "category": "unknown",
+   "expect": [
+    "ban:면역 + 증진 (ifHealth)"
+   ]
+  },
+  {
+   "text": "단백질 20g 함유, 국산 콩 100%",
+   "category": "general",
+   "expect": []
+  },
+  {
+   "text": "단백질 20g 함유, 국산 콩 100%",
+   "category": "health",
+   "expect": []
+  },
+  {
+   "text": "단백질 20g 함유, 국산 콩 100%",
+   "category": "unknown",
    "expect": []
   }
  ]
