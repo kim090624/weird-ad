@@ -179,9 +179,10 @@ textarea::placeholder { color: var(--muted); }
 .chip:hover { background: var(--grey200); }
 
 /* 제품 종류 묻기 */
-.mark-photo { margin: 24px 0 0; display: flex; align-items: center; gap: 16px; padding: 16px; border-radius: 16px; background: var(--grey50); }
-.mark-photo img { width: 96px; height: auto; max-width: 100%; border-radius: 12px; flex: none; background: #0b2a5b; }
-.mark-photo figcaption { font-size: 14px; color: var(--text-strong); }
+.mark-photo { margin: 24px 0 0; padding: 16px; border-radius: 16px; background: var(--grey50); }
+.mark-photo .marks { background: #ffffff; border-radius: 12px; padding: 12px; display: flex; justify-content: center; }
+.mark-photo img { width: 100%; max-width: 300px; height: auto; display: block; }
+.mark-photo figcaption { font-size: 14px; color: var(--text-strong); margin-top: 12px; }
 .mark-photo figcaption b { display: block; font-size: 15px; margin-bottom: 2px; }
 .choices { display: grid; gap: 10px; margin-top: 24px; }
 .choice {
@@ -307,12 +308,12 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
           <h1 tabindex="-1">이 제품이<br>건강기능식품인가요?</h1>
           <p class="lead">같은 표현도 건강기능식품이면 허용되고, 일반식품이면 금지될 수 있어요.</p>
           <figure class="mark-photo">
-            <img src="@@MARK_SRC@@" alt="건강기능식품 표시 예시. 둥근 도안 아래에 건강기능식품이라고 적혀 있어요.">
-            <figcaption><b>이 표시가 있으면 건강기능식품이에요</b>포장이나 광고 화면 구석에 있는 경우가 많아요.</figcaption>
+            <div class="marks"><img src="@@MARK_SRC@@" alt="표시 네 가지. 위쪽 두 개는 건강기능식품 표시(예전 도안과 지금 도안), 아래쪽 두 개는 우수건강기능식품제조기준 GMP 표시예요. 모두 식품의약품안전처 표시예요."></div>
+            <figcaption><b>이 중 하나가 있으면 건강기능식품이에요</b>위는 건강기능식품 표시, 아래는 우수건강기능식품제조기준(GMP) 표시예요. 예전 도안과 지금 도안이 함께 쓰여요. 포장이나 광고 화면 구석에 있는 경우가 많아요.</figcaption>
           </figure>
           <div class="choices" role="group" aria-label="제품 종류">
-            <button class="choice" type="button" data-kind="health"><div><b>네, 건강기능식품이에요</b><span>이 표시가 있어요</span></div><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 5l5 5-5 5"/></svg></button>
-            <button class="choice" type="button" data-kind="general"><div><b>아니요, 일반식품이에요</b><span>이 표시가 없어요</span></div><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 5l5 5-5 5"/></svg></button>
+            <button class="choice" type="button" data-kind="health"><div><b>네, 건강기능식품이에요</b><span>이 중 하나가 있어요</span></div><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 5l5 5-5 5"/></svg></button>
+            <button class="choice" type="button" data-kind="general"><div><b>아니요, 일반식품이에요</b><span>이런 표시가 없어요</span></div><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 5l5 5-5 5"/></svg></button>
             <button class="choice" type="button" data-kind="unknown"><div><b>모르겠어요</b><span>더 엄격한 일반식품 기준으로 확인할게요</span></div><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 5l5 5-5 5"/></svg></button>
           </div>
         </div>

@@ -21,7 +21,7 @@ OUT = ROOT / "web_demo.html"
 FONTS = ROOT / "web" / "fonts"
 DICT_CSVS = [ROOT / "data" / "dictionary" / "geumjieo_list.csv",
              ROOT / "data" / "dictionary" / "functional_claims.csv"]  # 공통 사전 + 제품 종류별 기능성 (초안)
-MARK = ROOT / "web" / "assets" / "health_food_mark.jpg"  # 건강기능식품 표시 예시 사진
+MARK = ROOT / "web" / "assets" / "health_food_marks.png"  # 건강기능식품 표시와 GMP 표시 (예전·지금 도안)
 
 FONT_FILES = [
     ("Pretendard-Medium.subset.woff2", 500),
@@ -100,7 +100,7 @@ def main() -> None:
     entries = dictionary()
     html = html.replace("/*@@FONTS@@*/", font_faces())
     html = html.replace("/*@@DICT@@*/", json.dumps(entries, ensure_ascii=False))
-    html = html.replace("@@MARK_SRC@@", "data:image/jpeg;base64," + base64.b64encode(MARK.read_bytes()).decode("ascii"))
+    html = html.replace("@@MARK_SRC@@", "data:image/png;base64," + base64.b64encode(MARK.read_bytes()).decode("ascii"))
     OUT.write_text(html, encoding="utf-8")
     print(f"{OUT.name}: {OUT.stat().st_size / 1024:.0f} KB, 사전 {len(entries)}개")
 
