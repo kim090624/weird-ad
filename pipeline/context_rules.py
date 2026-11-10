@@ -55,6 +55,11 @@ RULES: dict[str, dict[str, list[tuple[str, str]]]] = {
             (r"의약품이\s*아닙니다", "의약품이 아니라는 안내"),
         ],
     },
+    # 건강기능식품이 식품안전나라(C003)에 등록된 기능성 밖의 효과를 말함 -> 그 자체로 의심
+    "unapproved_func": {
+        "suspicious": [(r".", "제품이 인정받은 기능성에 없는 효과를 말하는 표현")],
+        "allowed": [],
+    },
     # (일반식품) 기능성 대상만
     "func_only": {
         "suspicious": [

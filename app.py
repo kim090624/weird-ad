@@ -15,10 +15,12 @@ import json
 import os
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, request, stream_with_context
 
+from pipeline import foodsafety
 from pipeline.extractors import check_dependencies
 from pipeline.judge_engine import JudgeEngine
 from pipeline.run import run_text, run_video
@@ -32,6 +34,18 @@ app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200MB
 
 ENGINE = JudgeEngine()
 _page_cache = None
+
+
+def _warm_public_data():
+    """식약처 기능성 문구(공공데이터)를 서버가 켜질 때 미리 받아 둔다. 실패해도 판단은 그대로 된다."""
+    try:
+        n = len(foodsafety.functional_phrases())
+        app.logger.info("functional phrases loaded: %d", n)
+    except Exception:
+        app.logger.exception("functional phrases load failed")
+
+
+threading.Thread(target=_warm_public_data, daemon=True).start()
 
 
 def page_html() -> str:
@@ -60,6 +74,8 @@ def health():
 def status():
     deps = check_dependencies()
     deps["ai_key"] = ENGINE.ai.available()
+    deps["foodsafety_key"] = bool(foodsafety.api_key())
+    deps["functional_phrases"] = len(foodsafety.functional_phrases())
     return jsonify(deps)
 
 

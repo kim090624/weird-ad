@@ -10,5 +10,7 @@ services:
     envVars:
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: FOODSAFETY_API_KEY
+        sync: false
       - key: FLASK_DEBUG
         value: "0"

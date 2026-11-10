@@ -249,6 +249,11 @@ textarea::placeholder { color: var(--muted); }
 .hit-basis { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
 .hit-note { margin: 8px 0 0; font-size: 14px; color: var(--soft-ink); background: var(--soft); border-radius: 10px; padding: 8px 12px; }
 .count.kind { background: var(--soft); color: var(--soft-ink); }
+.product { border-radius: 14px; background: var(--grey50); padding: 14px 16px; margin-top: 10px; }
+.product b { display: block; font-size: 16px; }
+.product span { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; }
+.product-label { margin: 12px 0 4px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.product ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 14px; color: var(--text-strong); }
 .hit-ai { margin: 8px 0 0; font-size: 14px; color: var(--text-strong); background: var(--grey50); border-radius: 10px; padding: 8px 12px; }
 .empty { color: var(--muted); margin: 12px 0 0; }
 .ai-sum { margin: 8px 0 0; font-size: 16px; color: var(--text-strong); }
@@ -382,6 +387,7 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
             <li data-k="frames" data-state="wait"><span class="st-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg></span><div><b>장면 뽑기</b><span class="st-sub"></span></div></li>
             <li data-k="ocr" data-state="wait"><span class="st-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg></span><div><b>화면 글자 읽기</b><span class="st-sub"></span></div></li>
             <li data-k="stt" data-state="wait"><span class="st-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg></span><div><b>소리 듣기</b><span class="st-sub"></span></div></li>
+<li data-k="lookup" data-state="wait"><span class="st-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg></span><div><b>식품안전나라 제품 확인</b><span class="st-sub"></span></div></li>
             <li data-k="dict" data-state="wait"><span class="st-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg></span><div><b>금지어 사전과 대조</b><span class="st-sub"></span></div></li>
             <li data-k="ai" data-state="wait"><span class="st-ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg></span><div><b>AI 문맥 확인</b><span class="st-sub">애매한 표현이 있을 때만 해요</span></div></li>
           </ul>
@@ -405,6 +411,20 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
           <p class="lead" id="vLead"></p>
           <div class="counts" id="vCounts"></div>
         </div>
+        <div id="productBlock" hidden>
+          <div class="band"></div>
+          <div class="sec">
+            <h2>식품안전나라에서 확인한 제품</h2>
+            <div class="product">
+              <b id="pName"></b>
+              <span id="pMeta"></span>
+              <p class="product-label">인정받은 기능성</p>
+              <ul id="pFuncs"></ul>
+            </div>
+            <p class="hit-note" id="pOverride" hidden></p>
+            <p class="hint">출처: 식품의약품안전처 식품안전나라 Open API, 건강기능식품 품목제조 신고사항(C003)</p>
+          </div>
+        </div>
         <div class="band"></div>
         <div class="sec">
           <h2>찾은 표현</h2>
@@ -424,6 +444,7 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
             <summary id="rawSummary">읽은 글자 전체 보기</summary>
             <ol id="rawList"></ol>
           </details>
+          <p class="disclaimer" id="sourcesLine" hidden></p>
           <p class="disclaimer">이 결과는 법률 판단이 아니라 금지어 사전과 AI로 걸러 본 참고 결과예요. 최종 판단은 직접 하세요. 부당광고 신고와 상담은 식품의약품안전처 1399에서 받아요.</p>
         </div>
       </div>
@@ -644,7 +665,8 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
     show(nextAfterKind);
   }));
   const commonCount = DICT.filter((e) => e.stage !== "func").length;
-  $("#dictCount").textContent = "식품표시광고법 시행령·식약처 고시에서 모은 " + commonCount + "개 표현에, 제품 종류별 기능성 규칙까지";
+  $("#dictCount").textContent = "식품표시광고법 시행령·식약처 고시에서 모은 " + commonCount + "개 표현에, 제품 종류별 기능성 규칙까지"
+    + (document.querySelector('meta[name="adscan-mode"][content="server"]') ? ". 식품안전나라 공공데이터로 제품과 인정 기능성도 확인해요" : "");
 
   // ---------------------------------------------------------------
   // Claude (아티팩트 sample 기능) — 화면 글자 읽기와 문맥 확인에 쓴다
@@ -926,11 +948,12 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
     $("#stopBtn").hidden = false;
     $("#retryBtn").hidden = true;
     $("#toTextBtn").hidden = true;
-    const subs = { frames: "", ocr: "", stt: "", dict: "", ai: "애매한 표현이 있을 때만 해요" };
+    const subs = { frames: "", ocr: "", stt: "", lookup: "", dict: "", ai: "애매한 표현이 있을 때만 해요" };
     Object.keys(subs).forEach((k) => setStep(k, "wait", subs[k]));
     document.querySelector('#steps li[data-k="frames"]').hidden = kind !== "video";
     document.querySelector('#steps li[data-k="ocr"]').hidden = kind !== "video";
     document.querySelector('#steps li[data-k="stt"]').hidden = !(SERVER && kind === "video");
+    document.querySelector('#steps li[data-k="lookup"]').hidden = !SERVER;
   }
 
   function stopRun() {
@@ -942,7 +965,7 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
 
   function failRun(e, kind) {
     if (e && e.code === "cancelled") return;
-    const k = ["frames", "ocr", "stt", "dict", "ai"].find((s) => document.querySelector('#steps li[data-k="' + s + '"]').dataset.state === "doing");
+    const k = ["frames", "ocr", "stt", "lookup", "dict", "ai"].find((s) => document.querySelector('#steps li[data-k="' + s + '"]').dataset.state === "doing");
     if (k) setStep(k, "fail");
     $("#runTitle").textContent = "확인을 끝내지 못했어요";
     $("#runLead").textContent = "";
@@ -1164,7 +1187,7 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
     $("#vIcon").innerHTML = ICONS[level];
     $("#vTitle").textContent = "";
     title.split("\n").forEach((line, i) => { if (i) $("#vTitle").appendChild(document.createElement("br")); $("#vTitle").appendChild(document.createTextNode(line)); });
-    const cat = job.category || "unknown";
+    const cat = result.category || job.category || "unknown";
     if (cat === "unknown" && result.hits.some((h) => h.ifHealth)) {
       lead += " 건강기능식품이라면 표시한 표현 중 일부는 허용될 수 있어요.";
     }
@@ -1172,7 +1195,8 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
 
     const counts = $("#vCounts");
     counts.textContent = "";
-    counts.appendChild(el("span", "count kind", { health: "건강기능식품 기준", general: "일반식품 기준", unknown: "일반식품 기준 · 종류 모름" }[cat]));
+    counts.appendChild(el("span", "count kind", { health: "건강기능식품 기준", general: "일반식품 기준", unknown: "일반식품 기준 · 종류 모름" }[cat]
+      + (result.product ? " · 공공데이터 확인" : "")));
     if (ban.length) counts.appendChild(el("span", "count ban", "금지 " + ban.length + "건"));
     if (review.length) counts.appendChild(el("span", "count warn", "문맥 확인 " + review.length + "건"));
     counts.appendChild(el("span", "count", (job.kind === "video" ? "읽은 문장 " : "문장 ") + result.sentences.length + "개"));
@@ -1195,6 +1219,7 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
       head.appendChild(el("span", "tag " + (h.level === "ban" ? "ban" : "warn"), h.tag));
       head.appendChild(el("b", null, h.title));
       if (h.S.src === "voice") head.appendChild(el("span", "tag plain", "나레이션"));
+      if (h.official) head.appendChild(el("span", "tag plain", "공공데이터"));
       if (h.level === "review" && ai) {
         const st = reviewState(h);
         head.appendChild(st === true ? el("span", "tag ban", "오해 소지 있음")
@@ -1223,6 +1248,31 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
       $("#aiSummary").textContent = errText(aiError);
     } else {
       aiBlock.hidden = true;
+    }
+
+    // 공공데이터: 찾은 제품과 대조한 자료
+    const pb = $("#productBlock");
+    if (result.product) {
+      const p = result.product;
+      pb.hidden = false;
+      $("#pName").textContent = p.name;
+      $("#pMeta").textContent = p.company + (p.report_no ? " · 품목제조신고 " + p.report_no : "");
+      const funcs = String(p.functions || "").split(/[\n\r]+|[①-⑳]/).map((x) => x.trim()).filter((x) => /도움/.test(x)).slice(0, 4);
+      const ul = $("#pFuncs"); ul.textContent = "";
+      (funcs.length ? funcs : ["등록된 기능성 문구가 없어요"]).forEach((f) => ul.appendChild(el("li", null, f)));
+      const names = { health: "네, 건강기능식품이에요", general: "아니요, 일반식품이에요", unknown: "모르겠어요" };
+      const ov = $("#pOverride");
+      ov.hidden = !(result.user_category && result.user_category !== "health");
+      if (!ov.hidden) ov.textContent = "처음에 '" + names[result.user_category] + "'를 고르셨지만, 식품안전나라에 등록된 건강기능식품이라 건강기능식품 기준으로 확인했어요.";
+    } else {
+      pb.hidden = true;
+    }
+    const src = $("#sourcesLine");
+    src.hidden = !SERVER;
+    if (SERVER) {
+      src.textContent = "대조한 자료: 팀 금지어 사전 " + DICT.filter((e) => e.stage !== "func").length + "개"
+        + (result.official_count ? ", 식약처 인정 기능성 문구 " + result.official_count + "개(식품안전나라 I2710·I-0050)" : "")
+        + (result.product ? ", 건강기능식품 품목 정보(식품안전나라 C003)" : "") + ".";
     }
 
     const raw = $("#rawList");

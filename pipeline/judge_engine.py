@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from pipeline import context_rules
+from pipeline import foodsafety
 
 DICT_DIR = Path(__file__).resolve().parent.parent / "data" / "dictionary"
 DEFAULT_DICT = [DICT_DIR / "geumjieo_list.csv", DICT_DIR / "functional_claims.csv"]
@@ -148,10 +149,22 @@ def split_sentences(text: str) -> list[str]:
     return [p.strip() for p in parts if p and p.strip()]
 
 
-def analyze(segments: list[dict], entries: list[Entry], category: str = "general") -> dict:
+def _official_index(official) -> list[dict]:
+    return [dict(o, nk=re.sub(r"\s+", "", o["key"])) for o in (official or []) if len(re.sub(r"\s+", "", o["key"])) >= 4]
+
+
+def _key_ranges(text: str, key: str) -> list[list[int]]:
+    pat = re.compile(r"\s*".join(re.escape(c) for c in re.sub(r"\s+", "", key)))
+    return [[m.start(), m.end()] for m in pat.finditer(text)]
+
+
+def analyze(segments: list[dict], entries: list[Entry], category: str = "general",
+            official: list[dict] | None = None, product: dict | None = None) -> dict:
     """
     segments: [{"text": str, "t": 초 또는 None, "thumb": dataURL 또는 None, "src": "screen"|"voice"|"text"}]
     category: health(건강기능식품) / general(일반식품) / unknown(모름 -> 일반식품 기준 + ifHealth 표시)
+    official: 식약처가 인정한 기능성 문구 (foodsafety.functional_phrases, 공공데이터 I2710·I-0050). 없으면 None
+    product:  식품안전나라에서 찾은 제품 (foodsafety.match_product, 공공데이터 C003). 없으면 None
     반환: {"sentences": [...], "hits": [...]}  (웹 버전 analyze 와 같은 모양)
     """
     sentences = []
@@ -165,6 +178,8 @@ def analyze(segments: list[dict], entries: list[Entry], category: str = "general
             sentences.append({"text": s, "t": seg.get("t"), "thumb": seg.get("thumb"), "src": seg.get("src", "text")})
 
     hits = []
+    off_index = _official_index(official)
+    approved = re.sub(r"\s+", "", (product or {}).get("functions", ""))
     for S in sentences:
         found = []
         for e in entries:
@@ -231,6 +246,36 @@ def analyze(segments: list[dict], entries: list[Entry], category: str = "general
             else:
                 hits.append({"level": "review", "reason": "func_only", "tag": "문맥 확인", "title": ftarget[0][0].word,
                              "S": S, "ranges": ranges(ftarget), "basis": REVIEW_REASON["func_only"], "ifHealth": unknown})
+
+        # 공공데이터: 식약처가 인정한 기능성 문구와 같은 표현 (I2710, I-0050)
+        nos = re.sub(r"\s+", "", S["text"])
+        off = [o for o in off_index if o["nk"] in nos]
+        if off and category != "health":
+            o = max(off, key=lambda x: len(x["nk"]))
+            basis = f"식약처 인정 기능성 문구 '{o['phrase']}' ({foodsafety.SOURCES.get(o['source'], o['source'])}) · 건강기능식품만 쓸 수 있어요"
+            mine = [h for h in hits if h["S"] is S and h.get("tag") in ("기능성 표현", "문맥 확인") and h.get("reason") in (None, "func_only")
+                    and h["level"] in ("ban", "review") and (h.get("tag") == "기능성 표현" or h.get("reason") == "func_only")]
+            if mine:  # 초안 규칙이 이미 잡았으면 공식 문구 근거로 올린다
+                h = mine[0]
+                h.update(level="ban", tag="기능성 표현", basis=basis, official=o)
+                h.pop("reason", None)
+                h["ranges"] = h["ranges"] + _key_ranges(S["text"], o["key"])
+            else:
+                hits.append({"level": "ban", "tag": "기능성 표현", "title": o["key"], "S": S,
+                             "ranges": _key_ranges(S["text"], o["key"]), "basis": basis, "official": o, "ifHealth": unknown})
+
+        # 공공데이터: 찾은 건강기능식품이 인정받지 않은 기능을 광고하는지 (C003 주된기능성과 비교)
+        if category == "health" and approved:
+            claims = [o["key"] for o in off]
+            if ftarget and (fverb or fexag):
+                claims += [e.word for e, _ in ftarget]
+            for c in dict.fromkeys(claims):
+                words = [w for w in re.split(r"\s+", c) if len(w) >= 2]
+                if re.sub(r"\s+", "", c) in approved or any(w in approved for w in words):
+                    continue
+                hits.append({"level": "review", "reason": "unapproved_func", "tag": "인정 밖 기능", "title": c, "S": S,
+                             "ranges": _key_ranges(S["text"], c),
+                             "basis": f"이 제품({product['name']})이 인정받은 기능성에 없는 내용이에요 (식품안전나라 C003)"})
 
     return {"sentences": sentences, "hits": hits}
 
@@ -326,7 +371,7 @@ class JudgeEngine:
         self.entries = load_dictionary(dictionary_path)
         self.ai = ai if ai is not None else AIContextAnalyzer()
 
-    def run(self, segments: list[dict], category: str = "general"):
+    def run(self, segments: list[dict], category: str = "general", product: dict | None = None):
         """
         단계마다 진행 이벤트를 내보내고 마지막에 결과를 내보내는 생성기.
           {"type": "step", "step": "dict"|"ai", "state": "doing"|"done"|"skip"|"fail", "sub": 설명}
@@ -338,7 +383,8 @@ class JudgeEngine:
         if category not in CATEGORIES:
             category = "unknown"
         yield step("dict", "doing", f"{len(self.entries)}개 표현과 대조하는 중")
-        result = analyze(segments, self.entries, category)
+        official = list(foodsafety.functional_phrases())
+        result = analyze(segments, self.entries, category, official=official, product=product)
         ban = [h for h in result["hits"] if h["level"] == "ban"]
         review = [h for h in result["hits"] if h["level"] == "review"]
         yield step("dict", "done", f"금지 {len(ban)}건, 문맥 확인 {len(review)}건")
@@ -370,6 +416,8 @@ class JudgeEngine:
         result["ai_error"] = ai_error
         result["verdict"] = verdict(ban, review, ai)
         result["category"] = category
+        result["product"] = product
+        result["official_count"] = len(official)
         yield {"type": "result", "result": result}
 
     def judge(self, segments: list[dict], category: str = "general") -> dict:
