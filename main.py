@@ -13,18 +13,17 @@ import sys
 from pathlib import Path
 
 from pipeline.extractors import check_dependencies
-from pipeline.judge_engine import JudgeEngine
-from pipeline.run import run_text, run_video
+from pipeline.run import make_engine, run_text, run_video
 
 VERDICT = {"ban": "부당광고 (금지 표현)", "warn": "확인 필요 / 오해 소지", "ok": "문제 없어 보임"}
 
 
 def print_check():
-    engine = JudgeEngine()
+    engine = make_engine()
     for name, ok in check_dependencies().items():
         print(f"  [{'OK' if ok else '없음'}] {name}")
     print(f"  [{'OK' if engine.ai.available() else '없음'}] ANTHROPIC_API_KEY (문맥 확인 단계에만 필요)")
-    print(f"  사전: {len(engine.entries)}개 표현")
+    print(f"  사전: {len(getattr(engine, 'entries', []) or getattr(engine, 'lex').cases)}개 표현")
 
 
 def main():
@@ -46,7 +45,7 @@ def main():
         ap.print_help()
         sys.exit(1)
 
-    engine = JudgeEngine()
+    engine = make_engine()
     events = (run_video(Path(a.video), engine, a.narration, not a.no_stt, a.category) if a.video
               else run_text(a.text, engine, a.category))
     result = None
@@ -67,6 +66,9 @@ def main():
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
     print("\n판정:", VERDICT[result["verdict"]])
+    if result.get("risk"):
+        r = result["risk"]
+        print(f"위험도: {r['score']}/100 ({r['band']})" + (f" · 건강기능식품이라면 {r['ifHealth']}" if "ifHealth" in r else ""))
     for h in result["hits"]:
         t = f"{int(h['S']['t'] // 60)}:{int(h['S']['t'] % 60):02d} " if h["S"].get("t") is not None else ""
         print(f"  - [{h['tag']}] {h['title']}  {t}\"{h['S']['text']}\"")

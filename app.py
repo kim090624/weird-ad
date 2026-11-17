@@ -22,8 +22,7 @@ from flask import Flask, Response, jsonify, request, stream_with_context
 
 from pipeline import foodsafety
 from pipeline.extractors import check_dependencies
-from pipeline.judge_engine import JudgeEngine
-from pipeline.run import run_text, run_video
+from pipeline.run import make_engine, run_text, run_video
 
 ROOT = Path(__file__).resolve().parent
 PAGE = ROOT / "web_demo.html"
@@ -32,7 +31,7 @@ ALLOWED_EXT = {".mp4", ".mov", ".m4v", ".mkv", ".webm"}
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200MB
 
-ENGINE = JudgeEngine()
+ENGINE = make_engine()
 _page_cache = None
 
 

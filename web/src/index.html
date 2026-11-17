@@ -263,6 +263,25 @@ details.raw li { display: grid; grid-template-columns: 44px 1fr; gap: 8px; font-
 details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
 .disclaimer { margin: 20px 0 0; font-size: 13px; color: var(--muted); }
 
+/* 위험도 */
+.risk-num { display: flex; align-items: baseline; gap: 6px; margin-top: 4px; }
+.risk-num b { font-size: 44px; font-weight: 800; letter-spacing: -.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.risk-num span { color: var(--muted); font-size: 16px; }
+.risk-num em { font-style: normal; margin-left: 8px; border-radius: 8px; padding: 2px 10px; font-size: 14px; font-weight: 700; }
+.risk[data-band="낮음"] .risk-num em { background: var(--ok-soft); color: var(--ok); }
+.risk[data-band="주의"] .risk-num em { background: var(--warn-soft); color: var(--warn); }
+.risk[data-band="높음"] .risk-num em { background: var(--bad-soft); color: var(--bad); }
+.risk-bar { position: relative; height: 12px; border-radius: 6px; background: var(--grey100); margin-top: 14px; overflow: hidden; }
+.risk-bar i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 6px; background: var(--ok); transition: width .6s ease; }
+.risk[data-band="주의"] .risk-bar i { background: var(--warn); }
+.risk[data-band="높음"] .risk-bar i { background: var(--bad); }
+.risk-scale { display: grid; grid-template-columns: 25fr 35fr 40fr; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.risk-parts { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 12px; }
+.risk-parts li { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: start; font-size: 14px; color: var(--text-strong); }
+.risk-parts small { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+.limits { margin: 12px 0 0; padding-left: 18px; font-size: 13px; color: var(--muted); display: grid; gap: 4px; }
+@media (prefers-reduced-motion: reduce) { .risk-bar i { transition: none; } }
+
 @media (prefers-reduced-motion: reduce) {
   .steps li[data-state="doing"] .st-ic { animation-duration: 2.4s; }
   .thumbs img { animation: none; }
@@ -411,6 +430,24 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
           <p class="lead" id="vLead"></p>
           <div class="counts" id="vCounts"></div>
         </div>
+        <div id="riskBlock" hidden>
+          <div class="band"></div>
+          <div class="sec">
+            <h2>위험도</h2>
+            <div class="risk" id="risk" data-band="낮음">
+              <div class="risk-num"><b id="riskScore">0</b><span>/ 100</span><em id="riskBand"></em></div>
+              <div class="risk-bar" id="riskBar" role="img" aria-label="위험도"><i id="riskFill"></i></div>
+              <div class="risk-scale" aria-hidden="true"><span>낮음</span><span>주의</span><span>높음</span></div>
+              <p class="hit-note" id="riskIf" hidden></p>
+            </div>
+            <details class="raw">
+              <summary>점수가 나온 근거</summary>
+              <ul class="risk-parts" id="riskParts"></ul>
+            </details>
+            <p class="hint">규칙 가중치로 계산한 참고 점수예요. 위반 확률이 아니고, 법률 판단도 아니에요.</p>
+            <ul class="limits" id="riskLimits"></ul>
+          </div>
+        </div>
         <div id="productBlock" hidden>
           <div class="band"></div>
           <div class="sec">
@@ -445,7 +482,7 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
             <ol id="rawList"></ol>
           </details>
           <p class="disclaimer" id="sourcesLine" hidden></p>
-          <p class="disclaimer">이 결과는 법률 판단이 아니라 금지어 사전과 AI로 걸러 본 참고 결과예요. 최종 판단은 직접 하세요. 부당광고 신고와 상담은 식품의약품안전처 1399에서 받아요.</p>
+          <p class="disclaimer">이 결과는 법률 판단이 아니라 금지어 사전과 규칙·AI로 걸러 본 참고 결과예요. 최종 판단은 직접 하세요. 부당광고 신고와 상담은 식품의약품안전처 1399에서 받아요.</p>
         </div>
       </div>
       <div class="cta">
@@ -1177,7 +1214,9 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
       lead = "금지어는 없지만 규칙으로 판단하기 어려운 표현이 있어요. 표시한 문장을 직접 확인해 주세요.";
     } else if (review.length && !ai) {
       level = "warn"; title = "확인이 필요한 표현이 있어요";
-      lead = "금지어는 없지만 문맥을 봐야 하는 표현이 있어요. AI 확인을 하지 못했어요.";
+      lead = result.engine === "claims"
+        ? "금지 표현은 없지만 확인이 필요한 표현이 있어요. 표시한 문장을 직접 확인해 주세요."
+        : "금지어는 없지만 문맥을 봐야 하는 표현이 있어요. AI 확인을 하지 못했어요.";
     } else {
       level = "ok"; title = "문제가 되는 표현을\n찾지 못했어요";
       lead = review.length ? "문맥을 확인한 표현도 오해 소지가 낮아 보여요." : "금지어 사전에 있는 표현이 나오지 않았어요.";
@@ -1193,10 +1232,45 @@ details.raw li span { color: var(--muted); font-variant-numeric: tabular-nums; }
     }
     $("#vLead").textContent = lead;
 
+    // 위험도 (주장구조 엔진이 내보낸 점수. 없으면 숨긴다)
+    const rb = $("#riskBlock");
+    if (result.risk) {
+      const r = result.risk;
+      rb.hidden = false;
+      $("#risk").dataset.band = r.band;
+      $("#riskScore").textContent = r.score;
+      $("#riskBand").textContent = r.band;
+      $("#riskBar").setAttribute("aria-label", "위험도 " + r.score + "점, " + r.band);
+      const fill = $("#riskFill");
+      fill.style.width = "0%";
+      requestAnimationFrame(() => requestAnimationFrame(() => { fill.style.width = r.score + "%"; }));
+      const ifh = $("#riskIf");
+      ifh.hidden = !(cat === "unknown" && typeof r.ifHealth === "number");
+      if (!ifh.hidden) ifh.textContent = "일반식품 기준 " + r.score + "점 · 건강기능식품이라면 " + r.ifHealth + "점이에요.";
+      const parts = $("#riskParts");
+      parts.textContent = "";
+      (r.parts || []).forEach((p) => {
+        const li = el("li");
+        const d = el("div");
+        d.appendChild(el("b", null, p.title + " · 규칙 " + p.rule));
+        d.appendChild(el("small", null, p.sentence));
+        li.appendChild(d);
+        li.appendChild(el("span", "count " + (p.level === "ban" ? "ban" : (p.level === "review" ? "warn" : "")), p.score + "점"));
+        parts.appendChild(li);
+      });
+      if (!(r.parts || []).length) parts.appendChild(el("li", null, "점수가 붙은 표현이 없어요."));
+      const lim = $("#riskLimits");
+      lim.textContent = "";
+      (result.limits || []).forEach((t) => lim.appendChild(el("li", null, t)));
+    } else {
+      rb.hidden = true;
+    }
+
     const counts = $("#vCounts");
     counts.textContent = "";
     counts.appendChild(el("span", "count kind", { health: "건강기능식품 기준", general: "일반식품 기준", unknown: "일반식품 기준 · 종류 모름" }[cat]
       + (result.product ? " · 공공데이터 확인" : "")));
+    if (result.labeled) counts.appendChild(el("span", "count kind", "'건강기능식품이 아닙니다' 문구 있음"));
     if (ban.length) counts.appendChild(el("span", "count ban", "금지 " + ban.length + "건"));
     if (review.length) counts.appendChild(el("span", "count warn", "문맥 확인 " + review.length + "건"));
     counts.appendChild(el("span", "count", (job.kind === "video" ? "읽은 문장 " : "문장 ") + result.sentences.length + "개"));

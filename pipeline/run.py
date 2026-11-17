@@ -18,6 +18,15 @@ from pipeline import foodsafety
 from pipeline.judge_engine import JudgeEngine
 
 
+def make_engine():
+    """판단엔진 고르기. 기본은 주장구조 엔진(AI 없음, 위험도 점수). ADSCAN_ENGINE=legacy 면 예전 사전 엔진."""
+    import os
+    if os.environ.get("ADSCAN_ENGINE", "claims") == "legacy":
+        return JudgeEngine()
+    from pipeline.claims import ClaimsEngine
+    return ClaimsEngine()
+
+
 def _step(k, state, sub=""):
     return {"type": "step", "step": k, "state": state, "sub": sub}
 
