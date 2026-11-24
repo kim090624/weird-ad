@@ -107,3 +107,40 @@ def groq_json(prompt: str, key: str | None = None, model: str | None = None, tim
     if not isinstance(out, dict):
         raise AIUnavailable("invalid_json", raw[:300])
     return out
+
+
+def validate_review(data, n_items: int) -> dict:
+    """
+    AI 답을 화면이 쓰는 모양으로 정리한다. 모양이 틀리면 AIUnavailable("invalid_json").
+      {"misleading": bool, "summary": str, "items": [{"n": 1..n_items, "misleading": bool|None, "reason": str}]}
+    번호가 범위를 벗어나거나 겹치는 항목은 버린다. 문장은 길이를 자른다 (화면에 그대로 나가므로).
+    """
+    if not isinstance(data, dict):
+        raise AIUnavailable("invalid_json", str(data)[:300])
+    summary = data.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        raise AIUnavailable("invalid_json", "summary 없음")
+    raw_items = data.get("items")
+    if not isinstance(raw_items, list):
+        raise AIUnavailable("invalid_json", "items 없음")
+    items, seen = [], set()
+    for it in raw_items:
+        if not isinstance(it, dict):
+            continue
+        try:
+            n = int(it.get("n"))
+        except (TypeError, ValueError):
+            continue
+        if not 1 <= n <= n_items or n in seen:
+            continue
+        m = it.get("misleading")
+        reason = it.get("reason")
+        items.append({"n": n, "misleading": m if isinstance(m, bool) else None,
+                      "reason": reason.strip()[:200] if isinstance(reason, str) else ""})
+        seen.add(n)
+    if n_items and not items:
+        raise AIUnavailable("invalid_json", "쓸 수 있는 items 없음")
+    m = data.get("misleading")
+    if not isinstance(m, bool):
+        m = any(it["misleading"] is not False for it in items)
+    return {"misleading": m, "summary": summary.strip()[:400], "items": sorted(items, key=lambda x: x["n"])}

@@ -55,11 +55,11 @@ Dockerfile, render.yaml, .github/workflows/keep-awake.yml   배포
      서버가 켜질 때 받아 두고, `python scripts/fetch_public_data.py --key 인증키`로 `data/public/`에 저장해 둘 수도 있다.
    - 인증키가 없으면 이 단계만 건너뛰고 나머지는 그대로 동작한다.
    - 인증키: 식품안전나라 → 공공데이터 활용 → 인증키 신청 (무료). `sample` 키는 시험용이라 검색 결과가 5건까지만 나온다.
-7. **AI 문맥 확인**: 금지 표현이 없고 문맥 확인 대상이 있을 때만 Claude API에 묻는다.
+7. **AI 문맥 확인** (예전 엔진): 금지 표현이 없고 문맥 확인 대상이 있을 때만 AI(Groq, 없으면 Claude)에 묻는다.
    키가 없거나 실패하면 `pipeline/context_rules.py`(규칙)로 대신 판단한다.
-   `ANTHROPIC_API_KEY`가 없으면 그 표현을 "확인이 필요한 표현"으로 보여 주고 끝낸다.
+   AI 키(`GROQ_API_KEY`, `ANTHROPIC_API_KEY`)가 없으면 그 표현을 "확인이 필요한 표현"으로 보여 주고 끝낸다.
 
-## 주장구조 엔진 (claims-engine 브랜치, AI 없이 동작)
+## 주장구조 엔진 (claims-engine 브랜치, 판정은 AI 없이)
 
 단어가 있는지가 아니라 **문장이 무엇을 주장하는지**로 판정한다 (`pipeline/claims/`).
 
@@ -74,6 +74,9 @@ Dockerfile, render.yaml, .github/workflows/keep-awake.yml   배포
 5. **데이터**: `data/claims/cases.csv`(식약처 적발 사례 표현 62개, 출처·쪽수 포함), `approved_functions.csv`(기능성 대조 16개), `diseases_extra.csv`(질병명 초안).
    질병명은 정식 질병 분류(한국표준질병사인분류)로 교체해야 한다.
 
+6. **AI 참고 의견** (선택): "확인 필요" 문장만 AI에게 묻고, 문장마다 이유를 붙인다. **판정과 위험도는 규칙이 정하고 AI는 바꾸지 못한다.**
+   AI 답은 모양(번호·참거짓·문장 길이)을 검사하고, 키가 없거나 답이 틀리거나 호출이 실패하면 이 단계만 빠진다.
+
 - 기본 엔진은 주장구조 엔진이다. 예전 사전 엔진은 `ADSCAN_ENGINE=legacy`로 켠다.
 - 시험: `python tests/test_claims.py`, 예전 엔진과 비교: `python tests/eval_compare.py`.
   `tests/eval_cases.json`은 평가 틀이다. 지금 문장은 설계 확인용이라 정확도 근거가 아니고, 적발 사례·정상 광고 각 30개 이상으로 채워야 한다.
@@ -87,7 +90,7 @@ Dockerfile, render.yaml, .github/workflows/keep-awake.yml   배포
 | 여는 사람 | 누구나 링크로 | claude.ai에 로그인한 사람 |
 | 화면 글자 | Tesseract (서버) | Claude가 장면 이미지를 읽음 |
 | 소리 | faster-whisper (서버) | 못 들음, 나레이션을 직접 적는 칸 |
-| AI 비용 | 내 API 키 (콘솔 크레딧) | 여는 사람의 claude.ai 사용량 |
+| AI 비용 | 서버 키 (Groq 또는 Anthropic) | 여는 사람의 claude.ai 사용량 |
 
 같은 `web_demo.html`을 쓴다. 서버가 내보낼 때 `<meta name="adscan-mode" content="server">`를 붙이고,
 화면은 이 표시가 있으면 `/api/analyze`를, 없으면 Claude를 부른다.
@@ -96,7 +99,9 @@ Dockerfile, render.yaml, .github/workflows/keep-awake.yml   배포
 
 1. https://render.com 가입 (GitHub 계정으로)
 2. New → **Blueprint** → `kim090624/weird-ad` 선택. `render.yaml`대로 설정이 채워진다.
-3. `ANTHROPIC_API_KEY` 입력 (없어도 동작하고, 문맥 확인만 빠진다)
+3. Environment에 `GROQ_API_KEY` 입력 (없어도 동작하고, AI 참고 의견만 빠진다). 모델은 `GROQ_MODEL`(기본 `openai/gpt-oss-120b`).
+   Groq 키가 없으면 `ANTHROPIC_API_KEY`(Claude)를 쓴다. 둘 다 있을 때 Claude로 고정하려면 `AI_PROVIDER=anthropic`.
+   키는 저장소에 넣지 않는다. 채팅·메신저 등에 노출된 키는 Groq 콘솔에서 지우고 새로 발급한다.
 4. Apply → 빌드가 끝나면 `https://weird-ad.onrender.com`
 
 - 무료 서버는 15분 쉬면 잠든다. `keep-awake.yml`이 10분마다 `/api/health`를 깨우지만, 시연 직전엔 직접 한 번 연다.
@@ -123,7 +128,7 @@ python main.py --text "의사가 추천하는 건강차"
 python tests/test_engine.py                 # 판단엔진 시험
 ```
 
-`ANTHROPIC_API_KEY`는 PowerShell `setx ANTHROPIC_API_KEY "sk-ant-..."`(터미널 다시 열기), Mac/Linux `export ANTHROPIC_API_KEY=sk-ant-...`.
+AI 키는 PowerShell `setx GROQ_API_KEY "gsk_..."`(터미널 다시 열기), Mac/Linux `export GROQ_API_KEY=gsk_...`. Claude를 쓰면 `ANTHROPIC_API_KEY`.
 
 ## 화면 고치기
 

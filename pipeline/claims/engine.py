@@ -1,10 +1,12 @@
 """
-주장구조 엔진 (AI 없음) — 기존 JudgeEngine 과 같은 모양의 결과를 낸다.
+주장구조 엔진 — 기존 JudgeEngine 과 같은 모양의 결과를 낸다. 판정과 점수는 규칙만으로 정한다.
 
   ① 주장 추출 (extract.py)   문장 -> 대상 + 강도 + 맥락 (+ 확신)
   ② 표준화                   대상을 질병 목록·기능성 목록·적발 사례 표현에 연결
   ③ 판정표 (rules.py)        제품 종류 × 대상 종류 × 강도 × 문형 -> 금지 / 확인 필요 / 허용 / 면제
   ④ 근거 표시                해당 문장, 규칙 번호, 법 조항, 위험도 점수
+  ⑤ AI 참고 의견 (선택)      '확인 필요' 문장만 AI(Groq/Claude)에게 묻고 이유를 덧붙인다.
+                             판정·점수는 바꾸지 않는다. 키가 없거나 실패하면 이 단계만 빠진다.
 
 결과: {"sentences", "hits"(기존 화면과 같은 모양), "claims", "risk", "verdict", "category", "labeled", "limits"}
 """
@@ -17,7 +19,7 @@ from pipeline import foodsafety
 from pipeline.claims import lexicon as L
 from pipeline.claims import rules
 from pipeline.claims.extract import extract, sentences_from
-from pipeline.judge_engine import CATEGORIES
+from pipeline.judge_engine import CATEGORIES, AIContextAnalyzer, AIUnavailable
 
 LIMITS = [
     "영상 속 장면(전후 비교 사진, 출연자 복장 등)과 글자로 나오지 않은 암시 표현은 확인하지 못해요.",
@@ -85,9 +87,10 @@ def verdict(findings: list) -> str:
 class ClaimsEngine:
     """JudgeEngine 과 같은 run()/judge() 인터페이스 (app.py 에서 바꿔 끼울 수 있다)."""
 
-    def __init__(self, lexicon: L.Lexicon | None = None):
+    def __init__(self, lexicon: L.Lexicon | None = None, ai=None):
         self.lex = lexicon or L.load_lexicon()
-        self.ai = _NoAI()
+        # AI 참고 의견. ai=False 로 끈다 (시험용). 기본은 환경변수의 키(GROQ_API_KEY, ANTHROPIC_API_KEY)를 본다.
+        self.ai = _NoAI() if ai is False else (ai or AIContextAnalyzer())
 
     def run(self, segments: list[dict], category: str = "general", product: dict | None = None):
         def step(k, state, sub):
@@ -98,9 +101,26 @@ class ClaimsEngine:
         ban = sum(1 for h in result["hits"] if h["level"] == "ban")
         rev = sum(1 for h in result["hits"] if h["level"] == "review")
         yield step("dict", "done", f"금지 {ban}건, 확인 필요 {rev}건 · 위험도 {result['risk']['score']}")
-        yield step("ai", "skip", "AI 없이 규칙으로 판정했어요")
-        result["ai"] = None
-        result["ai_error"] = None
+        ai, ai_error = None, None
+        review = [h for h in result["hits"] if h["level"] == "review"]
+        if not review:
+            yield step("ai", "skip", "규칙으로 판정했어요 (AI에게 물을 문장이 없어요)")
+        elif not self.ai.available():
+            yield step("ai", "skip", "규칙으로 판정했어요 (AI 키 없음)")
+        else:
+            yield step("ai", "doing", f"AI({self.ai.label()})가 '확인 필요' 문장 {len(review)}개에 의견을 다는 중")
+            try:
+                ai = self.ai.review(review, result["sentences"], result["category"])
+                ai.update(source="ai", role="opinion", provider=self.ai.label())
+                yield step("ai", "done", "AI 참고 의견을 붙였어요 (판정은 규칙 그대로)")
+            except AIUnavailable as e:
+                ai_error = {"code": e.code}
+            except Exception as e:  # 네트워크 등 예상 못 한 오류도 규칙 판정은 그대로 낸다
+                ai_error = {"code": "ai_failed", "message": str(e)[:200]}
+            if ai is None:
+                yield step("ai", "skip", "AI 의견을 받지 못해 규칙으로만 판정했어요")
+        result["ai"] = ai
+        result["ai_error"] = ai_error
         result["product"] = product
         result["official_count"] = len(foodsafety.functional_phrases())
         yield {"type": "result", "result": result}
@@ -116,6 +136,9 @@ class _NoAI:
     def available(self) -> bool:
         return False
 
+    def label(self) -> str:
+        return "AI"
+
 
 def main(argv=None):
     import argparse
@@ -125,7 +148,7 @@ def main(argv=None):
     ap.add_argument("--text", required=True)
     ap.add_argument("--category", default="unknown", choices=CATEGORIES)
     a = ap.parse_args(argv)
-    r = ClaimsEngine().judge([{"text": a.text, "t": None, "thumb": None, "src": "text"}], a.category)
+    r = ClaimsEngine(ai=False).judge([{"text": a.text, "t": None, "thumb": None, "src": "text"}], a.category)
     print(f"위험도 {r['risk']['score']}/100 ({r['risk']['band']})" + (f" · 건강기능식품이라면 {r['risk']['ifHealth']}" if 'ifHealth' in r['risk'] else ""))
     print("판정:", r["verdict"], "· 기능성표시식품 문구:", "있음" if r["labeled"] else "없음")
     for c in r["claims"]:

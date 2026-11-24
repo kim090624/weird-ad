@@ -8,7 +8,11 @@ services:
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
     envVars:
-      - key: ANTHROPIC_API_KEY
+      - key: GROQ_API_KEY          # AI 참고 의견 (Groq). 있으면 우선 쓴다
+        sync: false
+      - key: GROQ_MODEL            # 선택. 기본 openai/gpt-oss-120b
+        sync: false
+      - key: ANTHROPIC_API_KEY     # 선택. Groq 키가 없을 때 Claude
         sync: false
       - key: FOODSAFETY_API_KEY
         sync: false

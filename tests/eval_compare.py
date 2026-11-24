@@ -16,7 +16,7 @@ CASES = json.loads((ROOT / "tests" / "eval_cases.json").read_text(encoding="utf-
 
 
 def evaluate():
-    new, old = ClaimsEngine(), load_dictionary()
+    new, old = ClaimsEngine(ai=False), load_dictionary()
     rows = []
     for c in CASES:
         seg = [{"text": c["text"], "t": None, "thumb": None, "src": "text"}]

@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 from pipeline.claims import ClaimsEngine  # noqa: E402
 from pipeline.judge_engine import analyze as old_analyze, load_dictionary  # noqa: E402
 
-ENGINE = ClaimsEngine()
+ENGINE = ClaimsEngine(ai=False)
 OLD = load_dictionary()
 CASES = json.loads((ROOT / "tests" / "engine_cases.json").read_text(encoding="utf-8"))["cases"]
 

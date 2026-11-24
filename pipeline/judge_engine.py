@@ -20,9 +20,9 @@
   기능성 대상 + 과장 표현   (예: 감량 + 보장) -> 종류와 상관없이 금지
   unknown 은 더 엄격한 일반식품 기준으로 보고, 건강기능식품이었다면 허용됐을 결과에 ifHealth=True 를 붙인다.
 
-AI(Claude API)는 문맥 확인 단계에서만 쓴다.
+AI(Groq 또는 Claude API, pipeline/ai_provider.py)는 문맥 확인 단계에서만 쓴다.
   - 금지 표현이 하나라도 있으면 AI를 부르지 않는다.
-  - ANTHROPIC_API_KEY 가 없으면 문맥 확인 대상은 "확인 필요"로 남기고 끝낸다.
+  - GROQ_API_KEY 와 ANTHROPIC_API_KEY 가 모두 없으면 문맥 확인 대상은 "확인 필요"로 남기고 끝낸다.
 """
 
 from __future__ import annotations
@@ -329,7 +329,7 @@ def _parse_json(text: str):
 
 
 class AIContextAnalyzer:
-    """Claude API로 문맥 확인. 환경변수 ANTHROPIC_API_KEY, (선택) ANTHROPIC_MODEL."""
+    """AI로 문맥 확인. GROQ_API_KEY 가 있으면 Groq, 없으면 ANTHROPIC_API_KEY 로 Claude. (pipeline/ai_provider.py)"""
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
         self._explicit = api_key is not None  # 키를 직접 넘기면 Claude 로 본다
@@ -353,9 +353,10 @@ class AIContextAnalyzer:
         if prov is None:
             raise AIUnavailable("no_api_key")
         self.last_provider = prov
+        from pipeline import ai_provider
         if prov == "groq":
-            from pipeline import ai_provider
-            return ai_provider.groq_json(review_prompt(review_hits, sentences, category))
+            data = ai_provider.groq_json(review_prompt(review_hits, sentences, category))
+            return ai_provider.validate_review(data, len(review_hits))
         try:
             import anthropic
         except ImportError as e:
@@ -371,9 +372,12 @@ class AIContextAnalyzer:
             data = _parse_json(raw)
         except (ValueError, json.JSONDecodeError) as e:
             raise AIUnavailable("invalid_json", raw[:300]) from e
-        if not isinstance(data, dict):
-            raise AIUnavailable("invalid_json", raw[:300])
-        return data
+        return ai_provider.validate_review(data, len(review_hits))
+
+    def label(self) -> str:
+        """진행 문구에 쓸 제공자 이름 (Groq / Claude)"""
+        from pipeline import ai_provider
+        return ai_provider.label(self.provider())
 
 
 # ---------------------------------------------------------------------------
@@ -410,10 +414,11 @@ class JudgeEngine:
             yield step("ai", "skip", "확인할 표현이 없어요")
         else:
             if self.ai.available():
-                yield step("ai", "doing", f"Claude가 문장 {len(review)}개를 보고 있어요")
+                yield step("ai", "doing", f"AI({self.ai.label()})가 문장 {len(review)}개를 보고 있어요")
                 try:
                     ai = self.ai.review(review, result["sentences"], category)
                     ai["source"] = "ai"
+                    ai["provider"] = self.ai.label()
                     yield step("ai", "done", "확인했어요")
                 except AIUnavailable as e:
                     ai_error = {"code": e.code}
