@@ -332,16 +332,30 @@ class AIContextAnalyzer:
     """Claude API로 문맥 확인. 환경변수 ANTHROPIC_API_KEY, (선택) ANTHROPIC_MODEL."""
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
+        self._explicit = api_key is not None  # 키를 직접 넘기면 Claude 로 본다
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         # 문장 몇 개를 보는 일이라 가벼운 모델로 충분하다. 바꾸려면 ANTHROPIC_MODEL 환경변수.
         self.model = model or os.environ.get("ANTHROPIC_MODEL", "claude-haiku-5-5")
+        self.last_provider = None
+
+    def provider(self) -> str | None:
+        """groq / anthropic / None (GROQ_API_KEY 가 있으면 Groq 를 먼저 쓴다. pipeline/ai_provider.py)"""
+        if self._explicit:
+            return "anthropic" if self.api_key else None
+        from pipeline import ai_provider
+        return ai_provider.provider()
 
     def available(self) -> bool:
-        return bool(self.api_key)
+        return self.provider() is not None
 
     def review(self, review_hits: list[dict], sentences: list[dict], category: str = "general") -> dict:
-        if not self.api_key:
+        prov = self.provider()
+        if prov is None:
             raise AIUnavailable("no_api_key")
+        self.last_provider = prov
+        if prov == "groq":
+            from pipeline import ai_provider
+            return ai_provider.groq_json(review_prompt(review_hits, sentences, category))
         try:
             import anthropic
         except ImportError as e:
