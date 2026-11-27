@@ -109,6 +109,9 @@ def groq_json(prompt: str, key: str | None = None, model: str | None = None, tim
     return out
 
 
+PLACEHOLDER_SUMMARIES = {"전체 판단 2문장", "두 문장", "한 문장", "summary"}
+
+
 def validate_review(data, n_items: int) -> dict:
     """
     AI 답을 화면이 쓰는 모양으로 정리한다. 모양이 틀리면 AIUnavailable("invalid_json").
@@ -118,8 +121,9 @@ def validate_review(data, n_items: int) -> dict:
     if not isinstance(data, dict):
         raise AIUnavailable("invalid_json", str(data)[:300])
     summary = data.get("summary")
-    if not isinstance(summary, str) or not summary.strip():
-        raise AIUnavailable("invalid_json", "summary 없음")
+    summary = summary.strip() if isinstance(summary, str) else ""
+    if summary in PLACEHOLDER_SUMMARIES:
+        summary = ""  # 예시를 그대로 베낀 답이나 빈 답은 버린다 (문장별 이유는 그대로 쓴다)
     raw_items = data.get("items")
     if not isinstance(raw_items, list):
         raise AIUnavailable("invalid_json", "items 없음")
@@ -143,4 +147,4 @@ def validate_review(data, n_items: int) -> dict:
     m = data.get("misleading")
     if not isinstance(m, bool):
         m = any(it["misleading"] is not False for it in items)
-    return {"misleading": m, "summary": summary.strip()[:400], "items": sorted(items, key=lambda x: x["n"])}
+    return {"misleading": m, "summary": summary[:400], "items": sorted(items, key=lambda x: x["n"])}

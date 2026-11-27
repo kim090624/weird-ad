@@ -125,6 +125,10 @@ def test_validate_review():
 
     raises(lambda: ai_provider.validate_review([], 1), "invalid_json")
     raises(lambda: ai_provider.validate_review({"items": []}, 1), "invalid_json")
+    # 예시 문구를 베낀 summary 는 버리고 문장별 이유는 쓴다 (실제 Groq 응답에서 나온 경우)
+    out = ai_provider.validate_review({"summary": "전체 판단 2문장", "items": [{"n": 1, "misleading": True, "reason": "r"}]}, 1)
+    assert out["summary"] == "" and out["items"][0]["reason"] == "r"
+    assert ai_provider.validate_review({"items": [{"n": 1, "misleading": False}]}, 1)["summary"] == ""
     raises(lambda: ai_provider.validate_review({"summary": "s", "items": [{"n": 5}]}, 1), "invalid_json")
 
 

@@ -312,8 +312,10 @@ def review_prompt(review_hits: list[dict], sentences: list[dict], category: str 
         f"제품 종류: {CATEGORY_TEXT.get(category, CATEGORY_TEXT['general'])}\n\n"
         f"광고에서 읽은 전체 글자(앞뒤 문맥):\n\"\"\"\n{context}\n\"\"\"\n\n"
         f"검토할 문장:\n{items}\n\n"
-        "각 문장이 소비자를 오인하게 할 소지가 있는지 판단하라. JSON 객체 하나로만 답하라:\n"
-        '{"misleading": true 또는 false, "summary": "전체 판단 2문장", "items": [{"n": 1, "misleading": true 또는 false, "reason": "한 문장"}]}'
+        "각 문장이 소비자를 오인하게 할 소지가 있는지 판단하라. JSON 객체 하나로만 답하라. 키는 세 개다:\n"
+        "- misleading: 하나라도 오인 소지가 있으면 true, 아니면 false\n"
+        "- summary: 광고 전체에 대한 너의 판단을 직접 쓴 두 문장 (이 설명을 옮겨 적지 말 것)\n"
+        '- items: 문장마다 {"n": 문장 번호, "misleading": true 또는 false, "reason": 판단 이유 한 문장}'
     )
 
 
